@@ -11,7 +11,7 @@ def main():
     
     # Start collectors (could be threaded/async for real concurrency)
     start_twitter_stream(callback=process_event)
-    start_youtube_scraper(callback=process_event)
+    #start_youtube_scraper(callback=process_event)
     # ...repeat for TikTok, Google Trends
 
 if __name__ == "__main__":
