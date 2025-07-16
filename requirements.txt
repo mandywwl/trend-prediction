@@ -27,3 +27,6 @@ six==1.17.0
 tweepy==4.16.0
 urllib3==2.5.0
 yarl==1.20.1
+
+# PowerShell venv activation: .\venv\Scripts\Activate.ps1
+# .venv\Scripts\activate
