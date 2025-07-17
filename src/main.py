@@ -4,6 +4,7 @@ from collectors.twitter_collector import fake_twitter_stream
 from graph_builder import GraphBuilder
 import json
 import networkx as nx
+from networkx.readwrite import gpickle
 
 graph = GraphBuilder()
 event_counter = 0
@@ -19,7 +20,7 @@ def handle_event(event):
     event_counter += 1
     # Save every 100 events
     if event_counter % 100 == 0:
-        nx.write_gpickle(graph.G, f"../data/checkpoint_{event_counter}.gpickle")
+        gpickle.write_gpickle(graph.G, f"../data/checkpoint_{event_counter}.gpickle")
     print(f"Event from {event['source']}: {event['type']}, updated graph.")
 
     # Save each event for training/future use (JSON for simplicity now)
@@ -38,7 +39,7 @@ def main():
     # start_youtube_scraper(callback=process_event)
 
     # FOR TESTING: SAVE the graph for manual inspection
-    nx.write_gpickle(graph.G, "../data/test_graph.gpickle")
+    gpickle.write_gpickle(graph.G, "../data/test_graph.gpickle")
     print("Graph saved to data/test_graph.gpickle!")
 
 
