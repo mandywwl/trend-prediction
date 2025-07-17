@@ -12,23 +12,34 @@ class GraphBuilder:
 
     def process_event(self, event):
         timestamp = datetime.fromisoformat(event["timestamp"])
-        _, source, target, label = parse_event(event)
-        for node in [source, target]:
-            if node and not self.G.has_node(node):
-                self.G.add_node(node, type=self._infer_type(node))
-        self.G.add_edge(source, target, label=label, timestamp=timestamp)
-        self.G[source][target]["weight"] = apply_time_decay(timestamp, self.reference_time)
-        print(f"{source} -> {target} ({label}) - weight={self.G[source][target]['weight']:.4f}")
+        edges = parse_event(event)  # Now a list of (action, source, target, label)
+        for _, source, target, label in edges:
+            for node in [source, target]:
+                if node and not self.G.has_node(node):
+                    self.G.add_node(node, type=self._infer_type(node), platform=event.get("source"))
+            if source and target:
+                self.G.add_edge(source, target, label=label, timestamp=timestamp, platform=event.get("source"))
+                self.G[source][target]["weight"] = apply_time_decay(timestamp, self.reference_time)
+                print(f"{source} -> {target} ({label}) - weight={self.G[source][target]['weight']:.4f}")
+
 
     def _infer_type(self, node):
+        if node is None:
+            return "unknown"
         if node.startswith("u"):
             return "user"
-        elif node.startswith("t"):
+        if node.startswith("t"):
             return "tweet"
-        elif node.startswith("h_"):
+        if node.startswith("h_"):
             return "hashtag"
-        else:
-            return "unknown"
+        if node.startswith("yt_v"):
+            return "youtube_video"
+        if node.startswith("tk_v"):
+            return "tiktok_video"
+        if node.startswith("trend_"):
+            return "trend"
+        # TODO: Add more types
+        return "unknown"
 
     def validate(self):
         validate_graph(self.G)

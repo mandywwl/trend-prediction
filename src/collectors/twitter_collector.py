@@ -29,7 +29,7 @@ class TwitterCollector(tweepy.StreamingClient):
         event = {
             "timestamp": tweet.created_at.isoformat(),
             "user_id": f"u{tweet.author_id}",
-            "tweet_id": f"t{tweet.id}",
+            "content_id": f"t{tweet.id}",
             "hashtags": [tag['tag'].lower() for tag in tweet.entities.get('hashtags', [])] if tweet.entities else [],
             "type": "original" if not tweet.referenced_tweets else tweet.referenced_tweets[0].type, # can be 'retweeted', 'replied_to', etc.
             "source": "twitter",
@@ -80,7 +80,7 @@ def fake_twitter_stream(keywords=None, on_event=None, n_events=10, delay=1.0):
         event = {
             "timestamp": datetime.now().isoformat(),
             "user_id": f"u{i%5}",  # 5 fake users
-            "tweet_id": f"t{i}",
+            "content_id": f"t{i}",
             "hashtags": ["test", "mock"] if i % 2 == 0 else ["fyp", "viral"],
             "type": "original",
             "source": "twitter",
