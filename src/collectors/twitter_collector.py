@@ -1,4 +1,6 @@
 import tweepy
+import time
+from datetime import datetime
 
 class TwitterCollector(tweepy.StreamingClient):
     """
@@ -62,14 +64,31 @@ def start_twitter_stream(bearer_token, keywords=None, on_event=None):
         threaded=False
     )
 
-# Test usage:
-# if __name__ == "__main__":
-#     # Put your Twitter Bearer Token here or use an environment variable for security
-#     BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN") or "YOUR_BEARER_TOKEN_HERE"
-#     KEYWORDS = ["#trending", "ai", "football"]  # adjust as needed
+# The following is for a simulate twitter stream for testing purposes as the actual Twitter API as of 2025 requires a paid plan for real-time streaming.
+# For the scope of this university project, we can simulate events instead.
 
-#     def handle_event(event):
-#         print("[Twitter Event]", event)
-#         # Optionally: pass to your graph builder here
-
-#     start_twitter_stream(BEARER_TOKEN, KEYWORDS, handle_event)
+def fake_twitter_stream(keywords=None, on_event=None, n_events=10, delay=1.0):
+    """
+    Simulate streaming Twitter events for development without API access.
+    :param keywords: Unused, but kept for API compatibility.
+    :param on_event: Callback function to process each event.
+    :param n_events: Number of fake events to emit.
+    :param delay: Seconds between each event.
+    """
+    print("[Fake Twitter Stream] Starting simulation...")
+    for i in range(n_events):
+        event = {
+            "timestamp": datetime.now().isoformat(),
+            "user_id": f"u{i%5}",  # 5 fake users
+            "tweet_id": f"t{i}",
+            "hashtags": ["test", "mock"] if i % 2 == 0 else ["fyp", "viral"],
+            "type": "original",
+            "source": "twitter",
+            "text": f"This is a simulated tweet event number {i}."
+        }
+        if on_event:
+            on_event(event)
+        else:
+            print(event)
+        time.sleep(delay)
+    print("[Fake Twitter Stream] Finished emitting events.")
