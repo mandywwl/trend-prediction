@@ -9,6 +9,7 @@ contourpy==1.3.2
 cycler==0.12.1
 fonttools==4.58.2
 frozenlist==1.7.0
+greenlet==3.2.3
 idna==3.10
 kiwisolver==1.4.8
 matplotlib==3.10.3
@@ -18,15 +19,15 @@ numpy==2.3.0
 oauthlib==3.3.1
 packaging==25.0
 pillow==11.2.1
+playwright==1.53.0
 propcache==0.3.2
+pyee==13.0.0
 pyparsing==3.2.3
 python-dateutil==2.9.0.post0
 requests==2.32.4
 requests-oauthlib==2.0.0
 six==1.17.0
 tweepy==4.16.0
+typing_extensions==4.14.1
 urllib3==2.5.0
 yarl==1.20.1
-
-# PowerShell venv activation: .\venv\Scripts\Activate.ps1
-# .venv\Scripts\activate
