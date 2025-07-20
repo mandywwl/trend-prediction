@@ -1,6 +1,6 @@
 from collectors.twitter_collector import start_twitter_stream, fake_twitter_stream
 # from collectors.youtube_collector import start_youtube_scraper
-from graph_builder import GraphBuilder
+from graph.graph_builder import GraphBuilder
 import json
 import os
 import pickle
