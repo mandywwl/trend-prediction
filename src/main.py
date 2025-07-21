@@ -1,5 +1,5 @@
 from collectors.twitter_collector import start_twitter_stream, fake_twitter_stream
-# from collectors.youtube_collector import start_youtube_scraper
+from collectors.youtube_collector import start_youtube_scraper
 from graph.graph_builder import GraphBuilder
 import json
 import os
@@ -47,7 +47,6 @@ def handle_event(event):
     # Save checkpoint every 100 events
     if event_counter % 100 == 0:
         save_graph(graph.G, f"checkpoint_{event_counter}.gpickle")
-
     # print(f"Event from {event['source']}: {event['type']}, updated graph.")
 
     # TODO: Add optional features: save snapshots, stats, error handling, etc.
@@ -57,7 +56,7 @@ def main():
     # Start collectors (could be threaded/async for real concurrency)
     # start_twitter_stream(TWITTER_BEARER_TOKEN, KEYWORDS, handle_event) # XXX: Uncomment to use Twitter API
     fake_twitter_stream(keywords=KEYWORDS, on_event=handle_event) # XXX: Simulate Twitter stream for testing (Comment out if using Twitter API)
-    # start_youtube_scraper(callback=process_event)
+    start_youtube_scraper(on_event=handle_event)
 
     # FOR TESTING: SAVE the graph for manual inspection
     save_graph(graph.G, "test_graph.pkl")
