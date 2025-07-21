@@ -1,5 +1,5 @@
 from collectors.twitter_collector import start_twitter_stream, fake_twitter_stream
-from collectors.youtube_collector import start_youtube_scraper
+from collectors.youtube_collector import start_youtube_api_collector
 from graph.graph_builder import GraphBuilder
 import json
 import os
@@ -13,11 +13,14 @@ os.makedirs(DATA_DIR, exist_ok=True)
 graph = GraphBuilder()
 event_counter = 0
 
+# ---- Twitter API credentials ----
 TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" # XXX:Replace with your actual Twitter/X Bearer Token (Paid versions only as of 2025)
 KEYWORDS = ["#trending", "fyp", "viral"]  # XXX: Adjust keywords as needed
 
-# ---- Utility functions ----
+# --- YouTube API credentials ---
+YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key
 
+# ---- Utility functions ----
 def save_graph(graph_obj, filename):
     path = os.path.join(DATA_DIR, filename)
     with open(path, "wb") as f:
@@ -46,7 +49,7 @@ def handle_event(event):
 
     # Save checkpoint every 100 events
     if event_counter % 100 == 0:
-        save_graph(graph.G, f"checkpoint_{event_counter}.gpickle")
+        save_graph(graph.G, f"checkpoint_{event_counter}.pk1")
     # print(f"Event from {event['source']}: {event['type']}, updated graph.")
 
     # TODO: Add optional features: save snapshots, stats, error handling, etc.
@@ -56,7 +59,7 @@ def main():
     # Start collectors (could be threaded/async for real concurrency)
     # start_twitter_stream(TWITTER_BEARER_TOKEN, KEYWORDS, handle_event) # XXX: Uncomment to use Twitter API
     fake_twitter_stream(keywords=KEYWORDS, on_event=handle_event) # XXX: Simulate Twitter stream for testing (Comment out if using Twitter API)
-    start_youtube_scraper(on_event=handle_event)
+    start_youtube_api_collector(YOUTUBE_API_KEY, on_event=handle_event) # NOTE: Default categories are set in the collector
 
     # FOR TESTING: SAVE the graph for manual inspection
     save_graph(graph.G, "test_graph.pkl")
