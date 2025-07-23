@@ -70,7 +70,7 @@ if __name__ == "__main__":
     t1.start()
     t2.start()
 
-    # Wait for both to finish (or keep main alive if one is streaming)
+    # Wait for both to finish
     t1.join()
     t2.join()
 

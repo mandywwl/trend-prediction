@@ -12,7 +12,7 @@ class GraphBuilder:
 
     def process_event(self, event):
         timestamp = datetime.fromisoformat(event["timestamp"])
-        edges = parse_event(event)  # Now a list of (action, source, target, label)
+        edges = parse_event(event) 
         for _, source, target, label in edges:
             for node in [source, target]:
                 if node and not self.G.has_node(node):
