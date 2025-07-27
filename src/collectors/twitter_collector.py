@@ -64,7 +64,7 @@ def start_twitter_stream(bearer_token, keywords=None, on_event=None):
         threaded=False
     )
 
-# NOTE: The following is for a simulate twitter stream for testing purposes as the actual Twitter API as of 2025 requires a paid plan for real-time streaming.
+# The following is for a simulate twitter stream for testing purposes as the actual Twitter API as of 2025 requires a paid plan for real-time streaming.
 # For the scope of this university project, we can simulate events instead.
 
 def fake_twitter_stream(keywords=None, on_event=None, n_events=10, delay=1.0):
