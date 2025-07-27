@@ -3,6 +3,7 @@ import numpy as np
 from datetime import datetime
 from transformers import DistilBertTokenizer, DistilBertModel
 import torch
+import os
 
 tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
 model = DistilBertModel.from_pretrained('distilbert-base-uncased')
@@ -34,7 +35,10 @@ def embed_text(text):
 src_nodes, dst_nodes, timestamps, edge_features = [], [], [], []
 
 # --- Read events from JSONL file and build edges ---
-with open('../data/events.jsonl') as f:
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+events_path = os.path.join(project_root, 'data', 'events.jsonl')
+with open(events_path, encoding='utf-8') as f:
     for line in f:
         event = json.loads(line)
         user = get_node_id(event['user_id'])
