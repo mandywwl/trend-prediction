@@ -79,12 +79,31 @@ with open(events_path, encoding='utf-8') as f:
             timestamps.append(time_val)
             edge_features.append([0, 0, 0, 0, 0])  # NOTE: Placeholder, can improve later
 
+# --- Build full node features array (in node ID order) ---
+num_nodes = len(node2id)
+feature_dim = 768  # DistilBERT base output size
+
+features_list = []
+for i in range(num_nodes):
+    if i in node_features:
+        features_list.append(node_features[i])
+    else:
+        features_list.append(np.zeros(feature_dim))  # Safety: all nodes covered
+
+features_array = np.stack(features_list)
+
+
+
+
 # Save to .npz for easy loading in PyTorch
-np.savez('../data/tgn_edges_basic.npz',
+output_path = os.path.join(project_root, 'data', 'tgn_edges_basic.npz')
+np.savez(output_path,
          src=np.array(src_nodes),
          dst=np.array(dst_nodes),
          t=np.array(timestamps),
          edge_attr=np.array(edge_features),
-         node_map=np.array(list(node2id.keys())))
+         node_map=np.array(list(node2id.keys())),
+         node_features=features_array
+         )
 
 print(f"Saved {len(src_nodes)} edges and {len(node2id)} nodes.")
