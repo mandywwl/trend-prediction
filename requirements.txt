@@ -59,7 +59,6 @@ tokenizers==0.21.2
 torch==2.7.0+cu118
 torch-geometric==2.6.1
 torch_cluster==1.6.3+pt27cu118
-torch_geometric_temporal==0.56.2
 torch_scatter==2.1.2+pt27cu118
 torch_sparse==0.6.18+pt27cu118
 torch_spline_conv==1.2.2+pt27cu118
