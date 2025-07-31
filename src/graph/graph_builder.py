@@ -1,7 +1,7 @@
 import networkx as nx
 from datetime import datetime
 from utils.event_parsing import parse_event
-from utils.time_decay import apply_time_decay
+from graph.time_decay import apply_time_decay
 from utils.validation import validate_graph
 
 
