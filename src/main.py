@@ -11,6 +11,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- Credentials and configuration ---
+# TODO: Shift to environment variables or secure vaults in production
 TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" # XXX: Replace with your actual Twitter/X Bearer Token (Paid versions only as of 2025)
 YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key
 KEYWORDS = ["#trending", "fyp", "viral"]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
@@ -43,12 +44,12 @@ def handle_event(event):
     event_counter += 1
 
     # Save event for future use (JSON for simplicity now)
-    # NOTE: Consider using a database or more structured storage for production
+    # TODO: Consider using database or more structured storage for production
     save_event(event)
 
     # Save checkpoint every 100 events
     if event_counter % 100 == 0:
-        save_graph(graph.G, f"checkpoint_{event_counter}.pk1")
+        save_graph(graph.G, f"checkpoint_{event_counter}.pkl")
     # print(f"Event from {event['source']}: {event['type']}, updated graph.")
 
     # TODO: Add optional features: save snapshots, stats, error handling, etc.
