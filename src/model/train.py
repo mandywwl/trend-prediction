@@ -51,13 +51,13 @@ for epoch in range(3):  # TODO: Example, 3 epochs for quick testing
     total_loss = 0.0
 
 
-    for i in range(len(src) - 1): # NOTE: No negative sampling yet, just for testing
+    for i in range(len(src) - 1): # TODO: Add negative sampling
     
         src_i = src[i].unsqueeze(0).long()
         dst_i = dst[i].unsqueeze(0).long()
         t_i = t[i].unsqueeze(0)
         edge_feat = edge_attr[i].unsqueeze(0)
-        label = torch.tensor([1.0])  # Dummy, TODO: add negatives
+        label = torch.tensor([1.0]) # Dummy
 
         # DEBUG
         if i == 0:
