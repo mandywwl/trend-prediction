@@ -1,0 +1,12 @@
+# Use only on Windows/Linux with NVIDIA drivers + CUDA 11.8 runtime
+# You may also need: pip install --extra-index-url https://download.pytorch.org/whl/cu118
+torch==2.7.1+cu118
+torchvision==0.22.0+cu118
+torchaudio==2.7.1+cu118
+
+# PyG layers compiled for your torch/CUDA combo
+torch-geometric==2.6.1
+torch_scatter==2.1.2+pt27cu118
+torch_sparse==0.6.18+pt27cu118
+torch_cluster==1.6.3+pt27cu118
+torch_spline_conv==1.2.2+pt27cu118
