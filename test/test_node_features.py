@@ -1,10 +1,30 @@
 import numpy as np
+from pathlib import Path
 
-data = np.load('../data/tgn_edges_basic.npz', allow_pickle=True)
+# Resolve data file relative to this test file
+data_file = Path(__file__).resolve().parent.parent / 'data' / 'tgn_edges_basic.npz'
+data = np.load(str(data_file), allow_pickle=True)
+
 node_map = data['node_map']
 node_features = data['node_features']
 
-for i, node_label in enumerate(node_map[:20]):  # first 20 nodes, increase if needed
-    feat_sum = node_features[i].sum()
-    is_zero = np.all(node_features[i] == 0)
+if node_map is None or node_features is None:
+    raise RuntimeError(f"Missing required arrays in {data_file}. Available keys: {list(data.keys())}")
+
+# Print checks for the first 20 nodes (or fewer if not enough)
+count = min(20, len(node_map))
+for i, node_label in enumerate(node_map[:count]):
+    feat = node_features[i]
+    # Convert feature entry to a proper numpy array of floats, handling object/ragged entries
+    try:
+        arr = np.asarray(feat, dtype=float)
+    except Exception:
+        # Fallback: try to coerce via list()
+        try:
+            arr = np.array(list(feat), dtype=float)
+        except Exception:
+            # As a last resort, create a zero-length array
+            arr = np.array([], dtype=float)
+    feat_sum = float(np.sum(arr)) if arr.size > 0 else 0.0
+    is_zero = bool(np.all(arr == 0)) if arr.size > 0 else True
     print(f"{i}: {node_label}, Feature sum: {feat_sum:.4f}, Zero: {is_zero}")
