@@ -44,6 +44,7 @@ pyasn1~=0.6
 pyasn1_modules~=0.4
 pyee~=13.0
 pyparsing~=3.2
+pytrends~=4.9
 python-dateutil~=2.9
 python-dotenv~=1.1
 PyYAML~=6.0
