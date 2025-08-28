@@ -1,5 +1,6 @@
 from collectors.twitter import start_twitter_stream, fake_twitter_stream
 from collectors.youtube import start_youtube_api_collector
+from collectors.google_trends import start_google_trends_collector
 from graph.builder import GraphBuilder
 import json
 import os
@@ -66,6 +67,11 @@ def run_twitter():
 
 def run_youtube():
     start_youtube_api_collector(YOUTUBE_API_KEY, on_event=handle_event) # NOTE: Default categories are set in the collector
+
+def run_googletrends():
+    start_google_trends_collector(on_event=handle_event)
+
+
 
 # ---- Start collectors in separate threads ----
 if __name__ == "__main__":
