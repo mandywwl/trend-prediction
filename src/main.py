@@ -3,8 +3,15 @@ from collectors.youtube import start_youtube_api_collector
 from graph.builder import GraphBuilder
 import json
 import os
-import pickle
 import threading
+import torch
+try:
+    from preprocessing.preprocess_tgn import build_tgn
+except Exception:
+    try:
+        from src.preprocessing.preprocess_tgn import build_tgn
+    except Exception:
+        build_tgn = None
 
 # Directory to save data
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
@@ -13,7 +20,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # --- Credentials and configuration ---
 # TODO: Shift to environment variables or secure vaults in production
 TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" # XXX: Replace with your actual Twitter/X Bearer Token (Paid versions only as of 2025)
-YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key
+YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key # TODO: Remove before submission
 KEYWORDS = ["#trending", "fyp", "viral"]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
 
 # Initialize graph builder
@@ -23,8 +30,7 @@ event_counter = 0
 # ---- Utility functions ----
 def save_graph(graph_obj, filename):
     path = os.path.join(DATA_DIR, filename)
-    with open(path, "wb") as f:
-        pickle.dump(graph_obj, f)
+    torch.save(graph_obj, path)
     print(f"Graph saved to {path}")
 
 def save_event(event, filename="events.jsonl"):
@@ -34,8 +40,7 @@ def save_event(event, filename="events.jsonl"):
 
 def load_graph(filename):
     path = os.path.join(DATA_DIR, filename)
-    with open(path, "rb") as f:
-        return pickle.load(f)
+    return torch.load(path)
 
 # ---- Event handler ----
 def handle_event(event):
@@ -64,6 +69,20 @@ def run_youtube():
 
 # ---- Start collectors in separate threads ----
 if __name__ == "__main__":
+    # Ensure preprocessing output exists (auto-run if missing). Set PREPROCESS_FORCE=1 to force rebuild.
+    tgn_file = os.path.join(DATA_DIR, "tgn_edges_basic.npz")
+    try:
+        if build_tgn:
+            if (not os.path.exists(tgn_file)) or os.environ.get("PREPROCESS_FORCE") == "1":
+                print("[main] Running preprocessing (build_tgn)...")
+                build_tgn()
+            else:
+                print("[main] TGN file exists, skipping preprocessing. Set PREPROCESS_FORCE=1 to force.")
+        else:
+            print("[main] build_tgn not available; skipping preprocessing.")
+    except Exception as e:
+        print(f"[main] Preprocessing failed but continuing: {e}")
+
     # Create threads for each collector
     t1 = threading.Thread(target=run_twitter)
     t2 = threading.Thread(target=run_youtube)
@@ -76,6 +95,5 @@ if __name__ == "__main__":
     t2.join()
 
     # FOR TESTING: SAVE the graph for manual inspection
-    save_graph(graph.G, "test_graph.pkl")
+    save_graph(graph.to_temporal_data(), "test_graph.pt")
     print("Graph saved at end of script.")
-    

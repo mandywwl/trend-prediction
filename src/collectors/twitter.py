@@ -35,6 +35,9 @@ class TwitterCollector(tweepy.StreamingClient):
             "source": "twitter",
             "text": tweet.text
         }
+
+        print(f"[Twitter Stream] Received tweet {event['content_id']} from {event['user_id']} at {event['timestamp']}")
+
         # Pass the event to the graph builder or any handler
         if self.on_event:
             self.on_event(event)
@@ -58,6 +61,7 @@ def start_twitter_stream(bearer_token, keywords=None, on_event=None):
         keywords=keywords,
         on_event=on_event
     )
+    print("[Twitter Stream] Starting stream...")
     collector.filter(
         tweet_fields=["created_at", "author_id", "entities", "referenced_tweets"],
         expansions=[],

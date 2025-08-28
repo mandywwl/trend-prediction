@@ -1,35 +1,61 @@
-import networkx as nx
+import torch
+
 from datetime import datetime
+from typing import Dict, List, Optional
+from torch_geometric.data import TemporalData
 from utils.event_parser import parse_event
 from graph.decay import apply_time_decay
 from utils.validation import validate_graph
 
 
 class GraphBuilder:
-    def __init__(self, reference_time=None):
-        self.G = nx.DiGraph()
+    """ Builds a temporal graph from event data usable by PyG TGN model.
+
+        Events are streamed in and converted into lists of source nodes, destination nodes, timestamps and edge attributes. Nodes are tracked
+        via internal mapping from their string identifiers to an integer index so that the graph can grow beyond memory limits without starting a full adjacency structure.
+    """
+    def __init__(self, reference_time: Optional[datetime] = None):
         self.reference_time = reference_time or datetime.now()
 
+        # Edge storage for TemporalData
+        self.src: List[int] = []
+        self.dst: List[int] = []
+        self.t: List[float] = []
+        self.msg: List[List[float]] = []
+
+        # Node bookkeeping
+        self.node_map: Dict[str, int] = {}
+        self.node_types: Dict[int, str] = {}
+
     def process_event(self, event):
+        """Parse an incoming event and append it to the temporal edge stream."""
         timestamp = datetime.fromisoformat(event["timestamp"])
-        edges = parse_event(event) 
+        edges = parse_event(event)
+
         for _, source, target, label in edges:
-            for node in [source, target]:
-                if node and not self.G.has_node(node):
-                    self.G.add_node(node, type=self._infer_type(node), platform=event.get("source"))
-            if source and target:
-                self.G.add_edge(source, target, label=label, timestamp=timestamp, platform=event.get("source"))
-                self.G[source][target]["weight"] = apply_time_decay(timestamp, self.reference_time)
-                print(f"{source} -> {target} ({label}) - weight={self.G[source][target]['weight']:.4f}")
+            s_idx = self._add_node(source)
+            t_idx = self._add_node(target)
+
+            if s_idx is not None and t_idx is not None:
+                weight = apply_time_decay(timestamp, self.reference_time)
+                self.src.append(s_idx)
+                self.dst.append(t_idx)
+                self.t.append(timestamp.timestamp())
+                self.msg.append([weight])
+                print(f"{source} -> {target} ({label}) - weight={weight:.4f}")
 
 
-    def _infer_type(self, node):
+    def _add_node(self, node: Optional[str]) -> Optional[int]:
+        """Register a node string and return its integer index."""
         if node is None:
-            return "unknown"
-        if node.startswith("u"):
-            return "user"
-        if node.startswith("t"):
-            return "tweet"
+            return None
+        if node not in self.node_map:
+            idx = len(self.node_map)
+            self.node_map[node] = idx
+            self.node_types[idx] = self._infer_type(node)
+        return self.node_map[node]
+
+    def _infer_type(self, node: str) -> str:
         if node.startswith("h_"):
             return "hashtag"
         if node.startswith("yt_v"):
@@ -42,4 +68,15 @@ class GraphBuilder:
         return "unknown"
 
     def validate(self):
-        validate_graph(self.G)
+        validate_graph(self.src, self.dst)
+
+    def to_temporal_data(self) -> TemporalData:
+        """Return collected edges as a :class: `TemporalData` object."""
+        if not self.src:
+            return TemporalData
+        return TemporalData(
+            src=torch.tensor(self.src, dtype=torch.long),
+            dst=torch.tensor(self.dst, dtype=torch.long),
+            t=torch.tensor(self.t, dtype=torch.float),
+            msg=torch.tensor(self.msg, dtype=torch.float),
+        )

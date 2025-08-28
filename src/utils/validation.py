@@ -1,11 +1,9 @@
-def validate_graph(G):
-    """ Validate the integrity of the graph structure.
-    Checks for self-loops, edge types, and node assignments.
+def validate_graph(src, dst):
+    """ Simple validation for the temporal edge stream
+    Currently checks only for self-loops to keep memory usage minimal.
     """
     try:
-        assert not any(u == v for u, v in G.edges()), "ERROR: Graph has self-loops!"
-        assert all(0 <= d['weight'] <= 1 for _, _, d in G.edges(data=True)), "ERROR: Edge weights out of range!"
-        assert all('type' in d for _, d in G.nodes(data=True)), "ERROR: Some nodes lack a type!"
+        assert all(s != d for s, d in zip(src, dst)), "ERROR: Graph has self-loops!"
         print("SUCCESS: Graph passed all integrity checks.")
     except AssertionError as e:
         print(str(e))

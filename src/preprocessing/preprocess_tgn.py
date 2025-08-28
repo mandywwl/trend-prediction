@@ -5,105 +5,120 @@ from transformers import DistilBertTokenizer, DistilBertModel
 import torch
 import os
 
-tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
-model = DistilBertModel.from_pretrained('distilbert-base-uncased')
+def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
+    """
+    Build TGN edge file from events.jsonl.
+    - events_path: path to events.jsonl (defaults to project/data/events.jsonl)
+    - output_path: path to save .npz (defaults to project/data/tgn_edges_basic.npz)
+    - force: if True, rebuild even if output exists
+    Returns output_path.
+    """
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    if events_path is None:
+        events_path = os.path.join(project_root, 'data', 'events.jsonl')
+    if output_path is None:
+        output_path = os.path.join(project_root, 'data', 'tgn_edges_basic.npz')
 
-node2id = {}
-content_text = {}
-node_features = {} # node_id: embedding
+    if os.path.exists(output_path) and not force:
+        print(f"[preprocess] {output_path} already exists — skipping (use force=True to rebuild).")
+        return output_path
 
-# --- Utility functions for TGN preprocessing ---
-# Get unique node ID for a given node
-def get_node_id(node):
-    if node not in node2id:
-        node2id[node] = len(node2id)
-    return node2id[node]
+    # Lazy load tokenizer/model to avoid importing heavy assets on module import
+    tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
+    model = DistilBertModel.from_pretrained('distilbert-base-uncased')
 
-# Convert ISO8601 timestamp to float (seconds since epoch)
-def to_timestamp(ts):
-    return datetime.fromisoformat(ts).timestamp()
+    node2id = {}
+    node_features = {}
+    src_nodes, dst_nodes, timestamps, edge_features = [], [], [], []
 
-def embed_text(text):
-    """Embed text using DistilBERT and return the mean pooling of the output."""
-    inputs = tokenizer(text, return_tensors='pt', truncation=True, max_length=32)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    # Mean pooling
-    emb = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
-    return emb
+    # --- Utility functions for TGN preprocessing ---
+    def get_node_id(node):
+        """Get unique node ID for a given node"""
+        if node not in node2id:
+            node2id[node] = len(node2id)
+        return node2id[node]
 
-src_nodes, dst_nodes, timestamps, edge_features = [], [], [], []
+    def to_timestamp(ts):
+        """Convert ISO8601 timestamp to float (seconds since epoch)"""
+        return datetime.fromisoformat(ts).timestamp()
 
-# --- Read events from JSONL file and build edges ---
+    def embed_text(text):
+        """Embed text using DistilBERT and return the mean pooling of the output."""
+        inputs = tokenizer(text, return_tensors='pt', truncation=True, max_length=max_text_len)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        emb = outputs.last_hidden_state.mean(dim=1).squeeze().numpy() # mean pooling
+        return emb
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-events_path = os.path.join(project_root, 'data', 'events.jsonl')
-with open(events_path, encoding='utf-8') as f:
-    for line in f:
-        event = json.loads(line)
-        user = get_node_id(event['user_id'])
-        content = get_node_id(event['content_id'])
-        time_val = to_timestamp(event['timestamp'])
-        platform = event['source']
-        e_type = event['type']
+    if not os.path.exists(events_path):
+        raise FileNotFoundError(f"Events file not found: {events_path}")
 
-        # One-hot: [is_twitter, is_youtube, is_original, is_retweet, is_upload]
-        feature = [
-            int(platform == "twitter"),
-            int(platform == "youtube"), 
-            # TODO: Add more platforms after data collector complete
-            int(e_type == "original"),
-            int(e_type == "retweet"),
-            int(e_type == "upload")
-        ]
+    with open(events_path, encoding='utf-8') as f:
+        for line in f:
+            event = json.loads(line)
+            user = get_node_id(event['user_id'])
+            content = get_node_id(event['content_id'])
+            time_val = to_timestamp(event['timestamp'])
+            platform = event.get('source', '')
+            e_type = event.get('type', '')
 
-        # Add edge: user — content
-        src_nodes.append(user)
-        dst_nodes.append(content)
-        timestamps.append(time_val)
-        edge_features.append(feature)
+            # One-hot: [is_twitter, is_youtube, is_original, is_retweet, is_upload]
+            feature = [
+                int(platform == "twitter"),
+                int(platform == "youtube"),
+                # TODO: Add more platforms after data collector completed
+                int(e_type == "original"),
+                int(e_type == "retweet"),
+                int(e_type == "upload")
+            ]
 
-        # Extract content node embedding ONLY if first seen
-        if content not in node_features:
-            node_features[content] = embed_text(event['text'])
-
-        # User node (NOTE: simple zeros for now)
-        if user not in node_features:
-            node_features[user] = np.zeros(768)  # DistilBERT base output size
-
-        # Hashtag nodes
-        for hashtag in event['hashtags']:
-            h_id = get_node_id("h_" + hashtag)
-            src_nodes.append(content)
-            dst_nodes.append(h_id)
+            # Add edge: user — content
+            src_nodes.append(user)
+            dst_nodes.append(content)
             timestamps.append(time_val)
-            edge_features.append([0, 0, 0, 0, 0])  # NOTE: Placeholder, can improve later
+            edge_features.append(feature)
 
-# --- Build full node features array (in node ID order) ---
-num_nodes = len(node2id)
-feature_dim = 768  # DistilBERT base output size
+            # Extract content node embedding ONLY if first seen
+            if content not in node_features:
+                node_features[content] = embed_text(event.get('text', ''))
 
-features_list = []
-for i in range(num_nodes):
-    if i in node_features:
-        features_list.append(node_features[i])
-    else:
-        features_list.append(np.zeros(feature_dim))  # Safety: all nodes covered
+            # User node (NOTE: simple zeros for now)
+            if user not in node_features:
+                node_features[user] = np.zeros(768)
 
-features_array = np.stack(features_list)
+            # Hashtag nodes
+            for hashtag in event.get('hashtags', []):
+                h_id = get_node_id("h_" + hashtag)
+                src_nodes.append(content)
+                dst_nodes.append(h_id)
+                timestamps.append(time_val)
+                edge_features.append([0, 0, 0, 0, 0]) # TODO: Placeholder, can improve later
 
 
+    # --- Build full node features array (in node ID order) ---
+    num_nodes = len(node2id)
+    feature_dim = 768 # DistilBERT base output size
+    features_list = []
+    for i in range(num_nodes):
+        if i in node_features:
+            features_list.append(node_features[i])
+        else:
+            features_list.append(np.zeros(feature_dim)) # Safety: all nodes covered
+    features_array = np.stack(features_list)
 
+    # Save to .npz for easy loading in PyTorch
+    np.savez(output_path,
+             src=np.array(src_nodes),
+             dst=np.array(dst_nodes),
+             t=np.array(timestamps),
+             edge_attr=np.array(edge_features),
+             node_map=np.array(list(node2id.keys())),
+             node_features=features_array
+             )
 
-# Save to .npz for easy loading in PyTorch
-output_path = os.path.join(project_root, 'data', 'tgn_edges_basic.npz')
-np.savez(output_path,
-         src=np.array(src_nodes),
-         dst=np.array(dst_nodes),
-         t=np.array(timestamps),
-         edge_attr=np.array(edge_features),
-         node_map=np.array(list(node2id.keys())),
-         node_features=features_array
-         )
+    print(f"[preprocess] Saved {len(src_nodes)} edges and {len(node2id)} nodes to {output_path}")
+    return output_path
 
-print(f"Saved {len(src_nodes)} edges and {len(node2id)} nodes.")
+if __name__ == "__main__":
+    # Allow running the script directly
+    build_tgn()

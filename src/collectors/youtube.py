@@ -48,7 +48,7 @@ def start_youtube_api_collector(api_key, on_event=None, categories=None, max_res
                     "type": "upload",
                     "source": "youtube",
                     "text": video_title,
-                    # Optional:
+                    # NOTE: Optional:
                     # "description": description,
                     # "views": item['statistics'].get('viewCount', None),
                     # "likes": item['statistics'].get('likeCount', None),
