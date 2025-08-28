@@ -1,5 +1,15 @@
+import re
+
+
+def _slugify(text: str) -> str:
+    """Utility: convert free text into a safe identifier."""
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_")
+
+
 def parse_event(event):
-    """ Parse a raw event into structured components for graph processing.
+    """Parse a raw event into structured components for graph processing.
     Standardizes identifiers and timestamps across platforms (user IDs, tweet IDs, video IDs).
     """
     source = event.get("source")
@@ -36,7 +46,11 @@ def parse_event(event):
             outputs.append(("user-commented", user, content, "commented"))
 
     elif source == "google_trends":
-        # Context/trend nodes (e.g. for trend-topic or breaking event)
+        # Trend node itself
         outputs.append(("trend-event", None, content, "trend"))
+        # Optional context nodes for disambiguation
+        for ctx in event.get("context", []):
+            ctx_id = f"ctx_{_slugify(ctx)}"
+            outputs.append(("trend-context", content, ctx_id, "has_context"))
 
     return outputs

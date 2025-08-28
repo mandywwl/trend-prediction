@@ -64,6 +64,8 @@ class GraphBuilder:
             return "tiktok_video"
         if node.startswith("trend_"):
             return "trend"
+        if node.startswith("ctx_"):
+            return "context"
         # TODO: Add more types
         return "unknown"
 
