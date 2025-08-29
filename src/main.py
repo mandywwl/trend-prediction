@@ -92,13 +92,16 @@ if __name__ == "__main__":
     # Create threads for each collector
     t1 = threading.Thread(target=run_twitter)
     t2 = threading.Thread(target=run_youtube)
+    t3 = threading.Thread(target=run_googletrends)
 
     t1.start()
     t2.start()
+    t3.start()
 
     # Wait for both to finish
     t1.join()
     t2.join()
+    t3.join()
 
     # FOR TESTING: SAVE the graph for manual inspection
     save_graph(graph.to_temporal_data(), "test_graph.pt")

@@ -1,22 +1,18 @@
-"""Realtime DistilBERT text embedder with micro-batching and caching."""
-
 from __future__ import annotations
 
+import numpy as np
+import torch
 import threading
 import time
 from concurrent.futures import Future
 from queue import Queue, Empty
 from typing import List
-
-import numpy as np
-import torch
 from cachetools import TTLCache
 from transformers import AutoModel, AutoTokenizer
 
 
 class RealtimeTextEmbedder:
     """Encode text to embeddings using DistilBERT with real-time features.
-
     The embedder keeps a worker thread that batches incoming requests to
     amortise model execution cost. Repeated texts are memoised in an LRU cache
     with TTL to minimise latency.

@@ -11,7 +11,7 @@ node_features = data['node_features']
 if node_map is None or node_features is None:
     raise RuntimeError(f"Missing required arrays in {data_file}. Available keys: {list(data.keys())}")
 
-# Print checks for the first 20 nodes (or fewer if not enough)
+# Print checks for the first 20 nodes/fewer if not enough
 count = min(20, len(node_map))
 for i, node_label in enumerate(node_map[:count]):
     feat = node_features[i]
