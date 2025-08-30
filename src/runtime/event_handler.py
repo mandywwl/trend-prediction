@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+"""Event processing utilities for the streaming runtime."""
+
+from typing import Any, Callable, Dict, Sequence
+import numpy as np
+
+from embeddings.rt_distilbert import RealtimeTextEmbedder
+
+
+class EmbeddingPreprocessor:
+    """Attach text embeddings to incoming events.
+
+    The preprocessor looks for known text fields, encodes the first one found
+    using :class:`RealtimeTextEmbedder` and stores the resulting vector under
+    ``event["features"]["text_emb"]``.
+    """
+
+    def __init__(
+        self,
+        embedder: RealtimeTextEmbedder,
+        *,
+        text_fields: Sequence[str] | None = None,
+    ) -> None:
+        """Create a new :class:`EmbeddingPreprocessor`.
+
+        Args:
+            embedder: Instance of :class:`RealtimeTextEmbedder` used for
+                generating embeddings.
+            text_fields: Optional list of event keys to inspect for text. The
+                first present key is used. Defaults to common fields such as
+                ``"text"``, ``"tweet_text"`` and ``"caption"``.
+        """
+        self.embedder = embedder
+        self.text_fields = list(text_fields) if text_fields is not None else [
+            "text",
+            "tweet_text",
+            "caption",
+            "description",
+        ]
+
+        self._zero_emb: np.ndarray | None = None
+
+    # ------------------------------------------------------------------
+    def _extract_text(self, event: Dict[str, Any]) -> str | None:
+        for field in self.text_fields:
+            value = event.get(field)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    # ------------------------------------------------------------------
+    def __call__(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Process ``event`` in-place and return it.
+
+        If no text field is found a zero embedding is attached to satisfy the
+        downstream schema.
+        """
+        text = self._extract_text(event)
+        if text is None:
+            if self._zero_emb is None:
+                dim = self.embedder.model.config.hidden_size
+                self._zero_emb = np.zeros(dim, dtype=np.float32)
+            emb = self._zero_emb
+        else:
+            emb = self.embedder.encode([text])[0]
+
+        features = event.setdefault("features", {})
+        features["text_emb"] = emb.tolist()
+        return event
+
+
+class EventHandler:
+    """Handle events by preprocessing then invoking TGN inference."""
+
+    def __init__(
+        self,
+        embedder: RealtimeTextEmbedder,
+        infer: Callable[[Dict[str, Any]], Any],
+    ) -> None:
+        """Initialise the handler.
+
+        Args:
+            embedder: Text embedder used by the ``EmbeddingPreprocessor``.
+            infer: Callable representing the TGN inference service. It receives
+                the processed event.
+        """
+        self.preprocessor = EmbeddingPreprocessor(embedder)
+        self._infer = infer
+
+    # ------------------------------------------------------------------
+    def handle(self, event: Dict[str, Any]) -> Any:
+        """Preprocess ``event`` and forward it to inference."""
+        processed = self.preprocessor(event)
+        return self._infer(processed)
