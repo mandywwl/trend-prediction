@@ -58,12 +58,12 @@ class RealtimeTextEmbedder:
         self.cache: TTLCache[str, np.ndarray] = TTLCache(maxsize=cache_maxsize, ttl=cache_ttl)
         self.queue: Queue[tuple[str, Future]] = Queue()
 
-        # Model and tokenizer are loaded once during init.
+        # Model and tokenizer are loaded once during init
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name).to(self.device)
         self.model.eval()
 
-        # Background worker thread.
+        # Background worker thread
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
 

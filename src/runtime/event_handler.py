@@ -2,9 +2,9 @@ from __future__ import annotations # line to postpone postpone evaluation of typ
 
 """Event processing utilities for the streaming runtime."""
 
-from typing import Any, Callable, Dict, Sequence
 import numpy as np
 
+from typing import Any, Callable, Dict, Sequence
 from embeddings.rt_distilbert import RealtimeTextEmbedder
 from robustness.spam_filter import SpamScorer
 

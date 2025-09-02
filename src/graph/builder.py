@@ -2,12 +2,11 @@ import torch
 
 from datetime import datetime
 from typing import Dict, List, Optional
-
-from robustness.spam_filter import SpamScorer
-from torch_geometric.data import TemporalData
 from utils.event_parser import parse_event
 from graph.decay import apply_time_decay
 from utils.validation import validate_graph
+from torch_geometric.data import TemporalData
+from robustness.spam_filter import SpamScorer
 
 
 class GraphBuilder:
@@ -69,6 +68,7 @@ class GraphBuilder:
             self.node_types[idx] = self._infer_type(node)
         return self.node_map[node]
 
+
     def _infer_type(self, node: str) -> str:
         if node.startswith("h_"):
             return "hashtag"
@@ -83,8 +83,10 @@ class GraphBuilder:
         # TODO: Add more types
         return "unknown"
 
+
     def validate(self):
         validate_graph(self.src, self.dst)
+
 
     def to_temporal_data(self) -> TemporalData:
         """Return collected edges as a :class: `TemporalData` object."""

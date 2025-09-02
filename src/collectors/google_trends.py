@@ -2,12 +2,14 @@ from datetime import datetime
 import time
 import re
 
+# Try to import the pytrends library
 try:
     from pytrends.request import TrendReq
 except Exception:  # ImportError or other errors
     TrendReq = None
 
 
+# Slugify a text string
 def _slugify(text: str) -> str:
     """Normalize text to a slug usable as node ids."""
     text = text.lower()

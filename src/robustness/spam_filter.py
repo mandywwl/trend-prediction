@@ -2,15 +2,14 @@ from __future__ import annotations
 
 """Lightweight spam and bot scoring utilities."""
 
+import math
+import numpy as np
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Mapping, Sequence
 
-import math
-import numpy as np
-
-
-@dataclass
+@dataclass # dataclass allows for easy instantiation and representation
 class SpamScorerConfig:
     """Configuration for :class:`SpamScorer` heuristics."""
 
@@ -51,7 +50,7 @@ class SpamScorer:
         now = datetime.utcnow()
         scores: list[float] = []
 
-        # Account age ----------------------------------------------------
+        # -------------- Account age -------------------
         created = user.get("created_at")
         age_days = 0.0
         if isinstance(created, str):
@@ -59,13 +58,13 @@ class SpamScorer:
             age_days = (now - created_dt).total_seconds() / 86400.0
         scores.append(min(1.0, age_days / self.config.min_account_age_days))
 
-        # Follower/following ratio --------------------------------------
+        # ----------- Follower/following ratio ----------
         followers = float(user.get("followers", 0) or 0)
         following = float(user.get("following", 0) or 0)
         ratio = followers / (following + 1.0)
         scores.append(min(1.0, ratio / self.config.min_follower_ratio))
 
-        # Posting interval entropy --------------------------------------
+        # -------------- Posting interval entropy -----------
         posts = list(user.get("posts", []))
         if len(posts) > 1:
             times = sorted(
@@ -85,7 +84,7 @@ class SpamScorer:
         else:
             scores.append(1.0)
 
-        # Repeated text similarity --------------------------------------
+        # ------------ Repeated text similarity -------------------
         texts = [p.get("text", "") for p in posts if p.get("text")]
         if texts:
             unique_ratio = len(set(texts)) / len(texts)
@@ -93,7 +92,7 @@ class SpamScorer:
         else:
             scores.append(1.0)
 
-        # Language anomalies --------------------------------------------
+        # ---------------- Language anomalies ---------------------
         if texts:
             all_text = "".join(texts)
             non_ascii = sum(ord(c) > 127 for c in all_text)
@@ -102,7 +101,7 @@ class SpamScorer:
         else:
             scores.append(1.0)
 
-        # Blacklist terms -----------------------------------------------
+        # ------------- Blacklist terms ----------------------
         if texts and any(term in t.lower() for t in texts for term in self.config.blacklist):
             scores.append(0.0)
         else:

@@ -1,9 +1,11 @@
 import json
 import numpy as np
-from datetime import datetime
-from transformers import DistilBertTokenizer, DistilBertModel
 import torch
 import os
+
+from datetime import datetime
+from transformers import DistilBertTokenizer, DistilBertModel
+
 
 def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
     """

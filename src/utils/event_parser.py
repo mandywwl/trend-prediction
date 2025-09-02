@@ -1,6 +1,5 @@
 import re
 
-
 def _slugify(text: str) -> str:
     """Utility: convert free text into a safe identifier."""
     text = text.lower()
