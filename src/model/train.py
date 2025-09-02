@@ -46,7 +46,7 @@ model = TGNModel(
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 criterion = torch.nn.BCEWithLogitsLoss()
 
-for epoch in range(3):  # TODO: Example, 3 epochs for quick testing
+for epoch in range(3):  # TODO: 3 epochs for quick testing; increase for actual training
     model.reset_memory()  # Reset memory state at the start of each epoch
     total_loss = 0.0
 

@@ -80,7 +80,7 @@ class GraphBuilder:
             return "trend"
         if node.startswith("ctx_"):
             return "context"
-        # TODO: Add more types
+        # TODO (for production): Add more types
         return "unknown"
 
 

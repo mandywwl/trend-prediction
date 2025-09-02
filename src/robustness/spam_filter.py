@@ -22,6 +22,7 @@ class SpamScorerConfig:
         "free",
         "click here",
         "subscribe",
+        # XXX: Add more phrases as needed
     )
 
 

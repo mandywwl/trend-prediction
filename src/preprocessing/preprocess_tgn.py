@@ -68,7 +68,7 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
             feature = [
                 int(platform == "twitter"),
                 int(platform == "youtube"),
-                # TODO: Add more platforms after data collector completed
+                # TODO (for production): Add more platforms
                 int(e_type == "original"),
                 int(e_type == "retweet"),
                 int(e_type == "upload")
@@ -94,7 +94,7 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
                 src_nodes.append(content)
                 dst_nodes.append(h_id)
                 timestamps.append(time_val)
-                edge_features.append([0, 0, 0, 0, 0]) # TODO: Placeholder, can improve later
+                edge_features.append([0, 0, 0, 0, 0])  # TODO: Add meaningful features
 
 
     # --- Build full node features array (in node ID order) ---
