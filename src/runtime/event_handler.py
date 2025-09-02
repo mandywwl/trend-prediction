@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Sequence
 import numpy as np
 
 from embeddings.rt_distilbert import RealtimeTextEmbedder
+from robustness.spam_filter import SpamScorer
 
 
 class EmbeddingPreprocessor:
@@ -77,6 +78,8 @@ class EventHandler:
         self,
         embedder: RealtimeTextEmbedder,
         infer: Callable[[Dict[str, Any]], Any],
+        *,
+        spam_scorer: SpamScorer | None = None,
     ) -> None:
         """Initialise the handler.
 
@@ -84,12 +87,20 @@ class EventHandler:
             embedder: Text embedder used by the ``EmbeddingPreprocessor``.
             infer: Callable representing the TGN inference service. It receives
                 the processed event.
+            spam_scorer: Optional :class:`SpamScorer` used to down-weight
+                edges for suspected spammy accounts.
         """
         self.preprocessor = EmbeddingPreprocessor(embedder)
         self._infer = infer
+        self.spam_scorer = spam_scorer
 
     # ------------------------------------------------------------------
     def handle(self, event: Dict[str, Any]) -> Any:
         """Preprocess ``event`` and forward it to inference."""
         processed = self.preprocessor(event)
+
+        if self.spam_scorer is not None:
+            weight = self.spam_scorer.edge_weight(processed)
+            processed.setdefault("features", {})["edge_weight"] = weight
+
         return self._infer(processed)

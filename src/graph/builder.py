@@ -2,6 +2,8 @@ import torch
 
 from datetime import datetime
 from typing import Dict, List, Optional
+
+from robustness.spam_filter import SpamScorer
 from torch_geometric.data import TemporalData
 from utils.event_parser import parse_event
 from graph.decay import apply_time_decay
@@ -14,8 +16,14 @@ class GraphBuilder:
         Events are streamed in and converted into lists of source nodes, destination nodes, timestamps and edge attributes. Nodes are tracked
         via internal mapping from their string identifiers to an integer index so that the graph can grow beyond memory limits without starting a full adjacency structure.
     """
-    def __init__(self, reference_time: Optional[datetime] = None):
+    def __init__(
+        self,
+        reference_time: Optional[datetime] = None,
+        *,
+        spam_scorer: SpamScorer | None = None,
+    ) -> None:
         self.reference_time = reference_time or datetime.now()
+        self.spam_scorer = spam_scorer
 
         # Edge storage for TemporalData
         self.src: List[int] = []
@@ -32,12 +40,18 @@ class GraphBuilder:
         timestamp = datetime.fromisoformat(event["timestamp"])
         edges = parse_event(event)
 
+        spam_multiplier = 1.0
+        if self.spam_scorer is not None:
+            spam_multiplier = self.spam_scorer.edge_weight(event)
+
         for _, source, target, label in edges:
             s_idx = self._add_node(source)
             t_idx = self._add_node(target)
 
             if s_idx is not None and t_idx is not None:
-                weight = apply_time_decay(timestamp, self.reference_time)
+                weight = (
+                    apply_time_decay(timestamp, self.reference_time) * spam_multiplier
+                )
                 self.src.append(s_idx)
                 self.dst.append(t_idx)
                 self.t.append(timestamp.timestamp())
