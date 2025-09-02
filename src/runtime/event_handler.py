@@ -3,10 +3,12 @@ from __future__ import annotations # line to postpone postpone evaluation of typ
 """Event processing utilities for the streaming runtime."""
 
 import numpy as np
+import time
 
 from typing import Any, Callable, Dict, Sequence
 from embeddings.rt_distilbert import RealtimeTextEmbedder
 from robustness.spam_filter import SpamScorer
+from robustness.adaptive_thresholds import SensitivityController
 
 
 class EmbeddingPreprocessor:
@@ -51,14 +53,14 @@ class EmbeddingPreprocessor:
         return None
 
     # ------------------------------------------------------------------
-    def __call__(self, event: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, event: Dict[str, Any], *, light: bool = False) -> Dict[str, Any]:
         """Process ``event`` in-place and return it.
 
         If no text field is found a zero embedding is attached to satisfy the
         downstream schema.
         """
         text = self._extract_text(event)
-        if text is None:
+        if text is None or light:
             if self._zero_emb is None:
                 dim = self.embedder.model.config.hidden_size
                 self._zero_emb = np.zeros(dim, dtype=np.float32)
@@ -80,6 +82,7 @@ class EventHandler:
         infer: Callable[[Dict[str, Any]], Any],
         *,
         spam_scorer: SpamScorer | None = None,
+        sensitivity: "SensitivityController | None" = None,
     ) -> None:
         """Initialise the handler.
 
@@ -93,14 +96,43 @@ class EventHandler:
         self.preprocessor = EmbeddingPreprocessor(embedder)
         self._infer = infer
         self.spam_scorer = spam_scorer
+        self.sensitivity = sensitivity
 
     # ------------------------------------------------------------------
     def handle(self, event: Dict[str, Any]) -> Any:
-        """Preprocess ``event`` and forward it to inference."""
-        processed = self.preprocessor(event)
+        """Preprocess ``event`` and forward it to inference.
+
+        If a sensitivity controller is provided and currently applying
+        back-pressure, heavy operations such as embeddings are skipped by
+        attaching a zero-vector. The handler also records observed latency
+        into the controller for adaptive behaviour.
+        """
+
+        policy = None
+        if self.sensitivity is not None:
+            policy = self.sensitivity.policy()
+        light = bool(policy and not policy.heavy_ops_enabled)
+
+        t0 = time.perf_counter()
+        processed = self.preprocessor(event, light=light)
 
         if self.spam_scorer is not None:
             weight = self.spam_scorer.edge_weight(processed)
             processed.setdefault("features", {})["edge_weight"] = weight
 
-        return self._infer(processed)
+        result = self._infer(processed)
+
+        # Record latency and (optional) ground-truth spam label for adaptation
+        if self.sensitivity is not None:
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            is_spam = bool(processed.get("is_spam", False))
+            try:
+                self.sensitivity.record_event(is_spam=is_spam, latency_ms=latency_ms)
+            except Exception:
+                pass # never let adaptation interfere with the hot path
+
+            # Expose suggested sampler size for downstream components
+            pol = self.sensitivity.policy()
+            processed.setdefault("features", {})["sampler_size"] = pol.sampler_size
+
+        return result

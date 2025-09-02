@@ -1,7 +1,11 @@
 from collectors.twitter import start_twitter_stream, fake_twitter_stream
 from collectors.youtube import start_youtube_api_collector
 from collectors.google_trends import start_google_trends_collector
+from embeddings.rt_distilbert import RealtimeTextEmbedder
 from graph.builder import GraphBuilder
+from robustness.spam_filter import SpamScorer
+from robustness.adaptive_thresholds import SensitivityController
+from runtime.event_handler import EventHandler
 import json
 import os
 import threading
@@ -14,6 +18,8 @@ except Exception:
     except Exception:
         build_tgn = None
 
+
+
 # Directory to save data
 DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -24,9 +30,30 @@ TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" # XXX: Replace with your actu
 YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key # TODO: Remove before submission
 KEYWORDS = ["#trending", "fyp", "viral"]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
 
-# Initialize graph builder
-graph = GraphBuilder()
+# Initialize components
+spam_scorer = SpamScorer()
+graph = GraphBuilder(spam_scorer=spam_scorer)
+sensitivity = SensitivityController()
+embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
+
+# Wire runtime handler (preprocess + adaptive back-pressure)
 event_counter = 0
+
+def _infer_into_graph(event):
+    """Minimal inference hook: push event into graph builder.
+
+    This can later be swapped for a TGN inference call. Keeping a separate
+    function allows EventHandler to remain decoupled from graph internals.
+    """
+    graph.process_event(event)
+
+
+handler = EventHandler(
+    embedder,
+    _infer_into_graph,
+    spam_scorer=spam_scorer,
+    sensitivity=sensitivity,
+)
 
 # ---- Utility functions ----
 def save_graph(graph_obj, filename):
@@ -45,20 +72,20 @@ def load_graph(filename):
 
 # ---- Event handler ----
 def handle_event(event):
+    """Route incoming event through adaptive handler and persist artifacts."""
     global event_counter
-    graph.process_event(event)
+    handler.handle(event)
     event_counter += 1
 
-    # Save event for future use (JSON for simplicity now)
-    # TODO (for production): Consider using database or more structured storage
+    # Save raw event (append-only) for dashboards and reproducibility
+     # TODO (for production): Consider using database or more structured storage
+    save_event(event)
     save_event(event)
 
-    # Save checkpoint every 100 events
+    # Save a lightweight checkpoint periodically (TemporalData)
     if event_counter % 100 == 0:
-        save_graph(graph.G, f"checkpoint_{event_counter}.pkl")
-    # print(f"Event from {event['source']}: {event['type']}, updated graph.")
-
-    # TODO (for production): Add optional features—save snapshots, stats, error handling, etc.
+        save_graph(graph.to_temporal_data(), f"checkpoint_{event_counter}.pt")
+    # TODO (for production): Add optional stats/error handling, hook controller metrics to dashboards
 
 # ---- Run collectors ----
 def run_twitter():
