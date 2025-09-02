@@ -1,4 +1,4 @@
-from __future__ import annotations
+from __future__ import annotations # line to postpone postpone evaluation of type annotations
 
 """Event processing utilities for the streaming runtime."""
 
