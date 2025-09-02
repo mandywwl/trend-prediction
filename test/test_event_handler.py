@@ -1,5 +1,3 @@
-import numpy as np
-
 from embeddings.rt_distilbert import RealtimeTextEmbedder
 from runtime.event_handler import EmbeddingPreprocessor, EventHandler
 
