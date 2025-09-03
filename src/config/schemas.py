@@ -17,6 +17,9 @@ class Event(TypedDict):
     features: Features
 
 
+Batch = List[Event]
+
+
 class StageMs(TypedDict):
     ingest: int
     preprocess: int
