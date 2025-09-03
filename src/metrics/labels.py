@@ -2,14 +2,16 @@ from __future__ import annotations
 
 """Trend emergence labelling with adaptive thresholds.
 
-Reads DELTA_HOURS and WINDOW_MIN from config. Fetches (theta_g, theta_u)
-from SensitivityController, applies them to scale baseline thresholds for
-growth and unique users, and logs applied values per decision for replay.
+Reads ``DELTA_HOURS`` and ``WINDOW_MIN`` from :mod:`config.config`. Fetches
+``(theta_g, theta_u)`` from :class:`robustness.adaptive_thresholds.SensitivityController`,
+applies them to scale baseline thresholds for growth and unique users, and
+logs applied values per decision for replay. Replay validates that the same
+config values are used and recomputes labels exactly.
 """
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Deque, Dict, Iterable, Iterator, Optional, Tuple
+from typing import Deque, Dict, Iterator, Optional, Tuple
 from collections import deque
 import json
 import os
@@ -138,7 +140,13 @@ class EmergenceLabelBuffer:
                     label=int(rec["label"]),
                 )
 
-                # Recompute label using the same thresholds and constants
+                # Ensure config constants match for reproducibility
+                if ed.delta_hours != DELTA_HOURS or ed.window_min != WINDOW_MIN:
+                    raise ValueError(
+                        "Replay mismatch: DELTA_HOURS/WINDOW_MIN differ from config",
+                    )
+
+                # Recompute label using the same thresholds and counts
                 gf = ed.growth_factor_threshold
                 uu = ed.unique_users_threshold
                 recomputed = int(
