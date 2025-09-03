@@ -23,6 +23,11 @@ THRESH_RAISE_FACTOR: float = 1.20   # +20% during spike
 THRESH_DECAY_RATE: float = 0.9      # multiplicative decay per window
 EDGE_WEIGHT_MIN: float = 0.2        # clamp for down-weighting
 
+# Synthetic noise injection
+NOISE_P_DEFAULT: float = 0.08
+NOISE_JITTER_MIN_MIN: int = 3
+NOISE_JITTER_MAX_MIN: int = 10
+
 # Training objectives
 HUBER_DELTA_DEFAULT: float = 1.0
 LABEL_SMOOTH_EPS: float = 0.05
