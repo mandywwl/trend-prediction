@@ -1,6 +1,6 @@
-"""Event processing utilities for the streaming runtime."""
-
 from __future__ import annotations
+
+"""Event processing utilities for the streaming runtime."""
 
 import time
 from typing import Any, Callable, Dict, Sequence

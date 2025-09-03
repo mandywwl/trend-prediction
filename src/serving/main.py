@@ -1,3 +1,5 @@
+""" Main entry point for the serving layer."""
+
 from collectors.twitter import fake_twitter_stream
 from collectors.youtube import start_youtube_api_collector
 from collectors.google_trends import start_google_trends_collector

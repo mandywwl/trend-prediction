@@ -33,12 +33,12 @@ def test_huber_smooth_at_zero_and_boundary():
 
     # At boundary r = +/- delta -> both branches equal
     for sign in (-1.0, 1.0):
-        r = torch.tensor([sign * delta])
-        l = huber_loss(r, torch.tensor([0.0]), delta=delta).item()
+        r = torch.tensor([sign * delta], dtype=torch.float64)
+        l = huber_loss(r, torch.tensor([0.0], dtype=torch.float64), delta=delta).item()
         quad = 0.5 * (delta ** 2)
         lin = delta * (abs(delta) - 0.5 * delta)
-        assert math.isclose(l, quad, rel_tol=0, abs_tol=1e-8)
-        assert math.isclose(l, lin, rel_tol=0, abs_tol=1e-8)
+        assert math.isclose(l, quad, rel_tol=0, abs_tol=1e-12)
+        assert math.isclose(l, lin, rel_tol=0, abs_tol=1e-12)
 
 
 def test_huber_module_reduction_and_default_delta():
