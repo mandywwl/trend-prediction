@@ -1,7 +1,9 @@
 from __future__ import annotations
+
+""" Schema definitions for structured data used in the project. """
+
 from typing import TypedDict, Dict, List
 import numpy as np
-
 
 class Features(TypedDict, total=False):
     text_emb: np.ndarray  # float32, mean pooled

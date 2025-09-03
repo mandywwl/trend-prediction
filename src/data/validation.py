@@ -7,4 +7,3 @@ def validate_graph(src, dst):
         print("SUCCESS: Graph passed all integrity checks.")
     except AssertionError as e:
         print(str(e))
-

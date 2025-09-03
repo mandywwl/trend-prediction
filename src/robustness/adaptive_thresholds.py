@@ -1,20 +1,6 @@
 from __future__ import annotations
 
-# Adaptive sensitivity and back-pressure controller.
-
-# This module provides a lightweight, injectable controller that:
-
-# - Tracks spam rate over a sliding window (ground-truth provided by caller).
-# - Adapts (theta_g, theta_u) thresholds: +20% on spam spikes, otherwise decay
-#   smoothly back to baselines.
-# - Applies back-pressure when latency SLOs are breached (p95 > 2s): disables
-#   heavy operations and recommends reducing sampler size; gradually restores
-#   when recovered.
-# - Logs threshold and policy changes to an append-only file for dashboards.
-
-# The controller is deliberately decoupled from any specific runtime component.
-# Callers record events with spam labels and observed latencies, and consult the
-# controller for current thresholds and policy decisions.
+""" Adaptive sensitivity and back-pressure controller. """
 
 
 from dataclasses import dataclass

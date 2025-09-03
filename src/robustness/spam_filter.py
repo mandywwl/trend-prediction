@@ -1,6 +1,6 @@
-"""Lightweight spam and bot scoring utilities."""
-
 from __future__ import annotations
+
+"""Lightweight spam and bot scoring utilities."""
 
 import math
 import numpy as np

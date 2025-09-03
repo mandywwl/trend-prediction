@@ -1,6 +1,4 @@
-from __future__ import (
-    annotations,
-)  # line to postpone postpone evaluation of type annotations
+from __future__ import annotations
 
 import numpy as np
 import torch

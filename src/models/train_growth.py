@@ -47,6 +47,7 @@ def train_growth(yaml_path: Optional[str] = None) -> None:
     X = torch.randn(n, 16)
     true_w = torch.randn(16, 1)
     y = X @ true_w + 0.1 * torch.randn(n, 1)
+    
     # Inject 10% large noise outliers
     idx = torch.randperm(n)[: int(0.10 * n)]
     y[idx] += 10.0 * torch.sign(torch.randn_like(y[idx]))
