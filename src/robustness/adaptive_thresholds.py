@@ -20,10 +20,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from threading import RLock
-from typing import Deque, Dict, Iterable, List, Optional, Tuple
+from typing import Deque, Dict, Iterable, Optional
 from collections import deque
 import json
 import os
+
+from config.config import (
+    SPAM_RATE_SPIKE,
+    THRESH_RAISE_FACTOR,
+    THRESH_DECAY_RATE,
+    SPAM_WINDOW_MIN,
+    SLO_P95_MS,
+    SLO_MED_MS,
+)
 
 
 @dataclass
@@ -56,18 +65,19 @@ class SensitivityConfig:
     baseline_theta_g: float = 0.5
     baseline_theta_u: float = 0.5
     window_size: int = 200
-    raise_factor: float = 1.2
+    raise_factor: float = THRESH_RAISE_FACTOR
     max_multiplier_of_baseline: float = 2.0
-    decay_alpha: float = 0.85
+    decay_alpha: float = THRESH_DECAY_RATE
     log_path: str = os.path.join("data", "adaptive_thresholds.log")
+    window_minutes: int = SPAM_WINDOW_MIN
 
 
 @dataclass
 class SLOs:
     """Latency service level objectives in milliseconds."""
 
-    p50_ms: int = 1000  # median < 1s
-    p95_ms: int = 2000  # p95 < 2s
+    p50_ms: int = SLO_MED_MS
+    p95_ms: int = SLO_P95_MS
 
 
 @dataclass
@@ -170,9 +180,11 @@ class SensitivityController:
                     },
                 )
 
-            if (self._policy.active != prev_policy.active) or (
-                self._policy.heavy_ops_enabled != prev_policy.heavy_ops_enabled
-            ) or (self._policy.sampler_size != prev_policy.sampler_size):
+            if (
+                (self._policy.active != prev_policy.active)
+                or (self._policy.heavy_ops_enabled != prev_policy.heavy_ops_enabled)
+                or (self._policy.sampler_size != prev_policy.sampler_size)
+            ):
                 self._log(
                     action="policy_updated",
                     payload={
@@ -236,8 +248,8 @@ class SensitivityController:
         cap_g = self.cfg.baseline_theta_g * self.cfg.max_multiplier_of_baseline
         cap_u = self.cfg.baseline_theta_u * self.cfg.max_multiplier_of_baseline
 
-        if spam_rate > 0.20:
-            # Raise by 20% relative to current, with cap
+        if spam_rate > SPAM_RATE_SPIKE:
+            # Raise by configured factor relative to current, with cap
             new_g = min(self._theta_g * self.cfg.raise_factor, cap_g)
             new_u = min(self._theta_u * self.cfg.raise_factor, cap_u)
             self._theta_g, self._theta_u = new_g, new_u
@@ -262,17 +274,34 @@ class SensitivityController:
 
         if p95 > self.slos.p95_ms:
             # Enter or reinforce back-pressure
-            new_sampler = max(self._min_sampler, max(self._min_sampler, int(self._policy.sampler_size * 0.7)))
-            if new_sampler == self._policy.sampler_size and new_sampler > self._min_sampler:
+            new_sampler = max(
+                self._min_sampler,
+                max(self._min_sampler, int(self._policy.sampler_size * 0.7)),
+            )
+            if (
+                new_sampler == self._policy.sampler_size
+                and new_sampler > self._min_sampler
+            ):
                 new_sampler -= 1
-            self._policy = BackPressurePolicy(active=True, heavy_ops_enabled=False, sampler_size=new_sampler)
+            self._policy = BackPressurePolicy(
+                active=True, heavy_ops_enabled=False, sampler_size=new_sampler
+            )
             # Set a short cooldown so we don't flap (e.g., 2 windows)
             self._cooldown_until = now + self._cooldown_duration()
             return
 
         # If under SLO and past cooldown, gradually restore
-        if self._policy.active and (self._cooldown_until is not None) and (now >= self._cooldown_until):
-            new_sampler = min(self._max_sampler, max(self._policy.sampler_size + 1, int(self._policy.sampler_size * 1.2)))
+        if (
+            self._policy.active
+            and (self._cooldown_until is not None)
+            and (now >= self._cooldown_until)
+        ):
+            new_sampler = min(
+                self._max_sampler,
+                max(
+                    self._policy.sampler_size + 1, int(self._policy.sampler_size * 1.2)
+                ),
+            )
             # If sampler recovered sufficiently and p50 is healthy, re-enable heavy ops
             p50 = self._p50_ms()
             heavy_ok = p50 <= self.slos.p50_ms and p95 <= self.slos.p95_ms
@@ -309,4 +338,3 @@ class SensitivityController:
         except Exception:
             # Best-effort logging; never raise from controller
             pass
-

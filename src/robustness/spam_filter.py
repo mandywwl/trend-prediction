@@ -1,15 +1,17 @@
-from __future__ import annotations
-
 """Lightweight spam and bot scoring utilities."""
+
+from __future__ import annotations
 
 import math
 import numpy as np
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Mapping, Sequence
 
-@dataclass # dataclass allows for easy instantiation and representation
+from config.config import EDGE_WEIGHT_MIN, SPAM_WINDOW_MIN
+
+
+@dataclass  # dataclass allows for easy instantiation and representation
 class SpamScorerConfig:
     """Configuration for :class:`SpamScorer` heuristics."""
 
@@ -24,6 +26,7 @@ class SpamScorerConfig:
         "subscribe",
         # XXX: Add more phrases as needed
     )
+    window_minutes: int = SPAM_WINDOW_MIN
 
 
 class SpamScorer:
@@ -103,7 +106,9 @@ class SpamScorer:
             scores.append(1.0)
 
         # ------------- Blacklist terms ----------------------
-        if texts and any(term in t.lower() for t in texts for term in self.config.blacklist):
+        if texts and any(
+            term in t.lower() for t in texts for term in self.config.blacklist
+        ):
             scores.append(0.0)
         else:
             scores.append(1.0)
@@ -126,4 +131,5 @@ class SpamScorer:
         if user is None:
             return 1.0
 
-        return self.score_account(user)
+        score = self.score_account(user)
+        return max(score, EDGE_WEIGHT_MIN)

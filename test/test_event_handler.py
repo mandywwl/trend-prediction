@@ -1,13 +1,17 @@
+import numpy as np
+
 from embeddings.rt_distilbert import RealtimeTextEmbedder
 from runtime.event_handler import EmbeddingPreprocessor, EventHandler
+from config.schemas import Event
 
 
 def test_preprocessor_adds_embedding():
     embedder = RealtimeTextEmbedder(batch_size=1, max_latency_ms=5, device="cpu")
     pre = EmbeddingPreprocessor(embedder)
-    event = {"text": "hello world"}
+    event: Event = {"text": "hello world"}  # type: ignore[typeddict-item]
     out = pre(event)
     assert "text_emb" in out.setdefault("features", {})
+    assert isinstance(out["features"]["text_emb"], np.ndarray)
     assert len(out["features"]["text_emb"]) == embedder.model.config.hidden_size
 
 

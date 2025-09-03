@@ -1,4 +1,14 @@
-from robustness.adaptive_thresholds import SensitivityController, SensitivityConfig, SLOs
+from robustness.adaptive_thresholds import (
+    SensitivityController,
+    SensitivityConfig,
+    SLOs,
+)
+from config.config import (
+    THRESH_RAISE_FACTOR,
+    THRESH_DECAY_RATE,
+    SLO_MED_MS,
+    SLO_P95_MS,
+)
 
 
 def test_spam_spike_raises_thresholds_and_restores():
@@ -6,9 +16,9 @@ def test_spam_spike_raises_thresholds_and_restores():
         baseline_theta_g=1.0,
         baseline_theta_u=1.0,
         window_size=20,
-        raise_factor=1.2,
+        raise_factor=THRESH_RAISE_FACTOR,
         max_multiplier_of_baseline=2.0,
-        decay_alpha=0.9,
+        decay_alpha=THRESH_DECAY_RATE,
         log_path="data/test_adaptive_thresholds.log",
     )
     ctrl = SensitivityController(config=cfg, slos=SLOs())
@@ -45,7 +55,9 @@ def test_latency_breach_triggers_back_pressure():
         window_size=20,
         log_path="data/test_adaptive_thresholds.log",
     )
-    ctrl = SensitivityController(config=cfg, slos=SLOs(p50_ms=1000, p95_ms=2000))
+    ctrl = SensitivityController(
+        config=cfg, slos=SLOs(p50_ms=SLO_MED_MS, p95_ms=SLO_P95_MS)
+    )
 
     # Fill window with high latency to breach p95
     for _ in range(20):
@@ -55,4 +67,3 @@ def test_latency_breach_triggers_back_pressure():
     assert pol.active is True
     assert pol.heavy_ops_enabled is False
     assert pol.sampler_size >= 2
-

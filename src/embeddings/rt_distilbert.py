@@ -1,4 +1,6 @@
-from __future__ import annotations # line to postpone postpone evaluation of type annotations
+from __future__ import (
+    annotations,
+)  # line to postpone postpone evaluation of type annotations
 
 import numpy as np
 import torch
@@ -9,6 +11,12 @@ from queue import Queue, Empty
 from typing import List
 from cachetools import TTLCache
 from transformers import AutoModel, AutoTokenizer
+
+from config.config import (
+    EMBEDDER_P95_CPU_MS,
+    EMBED_MAX_BACKLOG,
+    EMBED_MAX_TOKENS,
+)
 
 
 class RealtimeTextEmbedder:
@@ -24,7 +32,7 @@ class RealtimeTextEmbedder:
         *,
         device: str | None = None,
         batch_size: int = 8,
-        max_latency_ms: int = 50,
+        max_latency_ms: int = EMBEDDER_P95_CPU_MS // 2,
         cache_maxsize: int = 1024,
         cache_ttl: float = 300.0,
     ) -> None:
@@ -43,7 +51,10 @@ class RealtimeTextEmbedder:
         if device is None:
             if torch.cuda.is_available():
                 device = "cuda"
-            elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            elif (
+                getattr(torch.backends, "mps", None)
+                and torch.backends.mps.is_available()
+            ):
                 device = "mps"
             else:
                 device = "cpu"
@@ -55,7 +66,9 @@ class RealtimeTextEmbedder:
         self.device = torch.device(device)
         self.batch_size = batch_size
         self.max_latency_ms = max_latency_ms
-        self.cache: TTLCache[str, np.ndarray] = TTLCache(maxsize=cache_maxsize, ttl=cache_ttl)
+        self.cache: TTLCache[str, np.ndarray] = TTLCache(
+            maxsize=cache_maxsize, ttl=cache_ttl
+        )
         self.queue: Queue[tuple[str, Future]] = Queue()
 
         # Model and tokenizer are loaded once during init
@@ -121,8 +134,8 @@ class RealtimeTextEmbedder:
 
             device = self.device
             max_length: int | None = None
-            if backlog > self.batch_size * 4:
-                max_length = 32
+            if backlog > EMBED_MAX_BACKLOG:
+                max_length = EMBED_MAX_TOKENS
                 if device.type != "cpu":
                     device = torch.device("cpu")
 

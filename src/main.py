@@ -1,4 +1,4 @@
-from collectors.twitter import start_twitter_stream, fake_twitter_stream
+from collectors.twitter import fake_twitter_stream
 from collectors.youtube import start_youtube_api_collector
 from collectors.google_trends import start_google_trends_collector
 from embeddings.rt_distilbert import RealtimeTextEmbedder
@@ -10,25 +10,26 @@ import json
 import os
 import threading
 import torch
+
 try:
     from preprocessing.preprocess_tgn import build_tgn
 except Exception:
-    try:
-        from src.preprocessing.preprocess_tgn import build_tgn
-    except Exception:
-        build_tgn = None
-
+    build_tgn = None
 
 
 # Directory to save data
-DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data')
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- Credentials and configuration ---
 # TODO (for production): Shift to environment variables or secure vaults
-TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" # XXX: Replace with your actual Twitter/X Bearer Token (Paid versions only as of 2025)
+TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token"  # XXX: Replace with your actual Twitter/X Bearer Token (Paid versions only as of 2025)
 YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key # TODO: Remove before submission
-KEYWORDS = ["#trending", "fyp", "viral"]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
+KEYWORDS = [
+    "#trending",
+    "fyp",
+    "viral",
+]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
 
 # Initialize components
 spam_scorer = SpamScorer()
@@ -38,6 +39,7 @@ embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
 
 # Wire runtime handler (preprocess + adaptive back-pressure)
 event_counter = 0
+
 
 def _infer_into_graph(event):
     """Minimal inference hook: push event into graph builder.
@@ -55,20 +57,24 @@ handler = EventHandler(
     sensitivity=sensitivity,
 )
 
+
 # ---- Utility functions ----
 def save_graph(graph_obj, filename):
     path = os.path.join(DATA_DIR, filename)
     torch.save(graph_obj, path)
     print(f"Graph saved to {path}")
 
+
 def save_event(event, filename="events.jsonl"):
     path = os.path.join(DATA_DIR, filename)
     with open(path, "a") as f:
         f.write(json.dumps(event) + "\n")
 
+
 def load_graph(filename):
     path = os.path.join(DATA_DIR, filename)
     return torch.load(path)
+
 
 # ---- Event handler ----
 def handle_event(event):
@@ -78,7 +84,7 @@ def handle_event(event):
     event_counter += 1
 
     # Save raw event (append-only) for dashboards and reproducibility
-     # TODO (for production): Consider using database or more structured storage
+    # TODO (for production): Consider using database or more structured storage
     save_event(event)
     save_event(event)
 
@@ -87,17 +93,23 @@ def handle_event(event):
         save_graph(graph.to_temporal_data(), f"checkpoint_{event_counter}.pt")
     # TODO (for production): Add optional stats/error handling, hook controller metrics to dashboards
 
+
 # ---- Run collectors ----
 def run_twitter():
     # start_twitter_stream(TWITTER_BEARER_TOKEN, KEYWORDS, handle_event) # XXX: Uncomment to use Twitter API
-    fake_twitter_stream(keywords=KEYWORDS, on_event=handle_event) # XXX: Simulate Twitter stream for testing (Comment out if using Twitter API)
+    fake_twitter_stream(
+        keywords=KEYWORDS, on_event=handle_event
+    )  # XXX: Simulate Twitter stream for testing (Comment out if using Twitter API)
+
 
 def run_youtube():
-    start_youtube_api_collector(YOUTUBE_API_KEY, on_event=handle_event) # NOTE: Default categories are set in the collector
+    start_youtube_api_collector(
+        YOUTUBE_API_KEY, on_event=handle_event
+    )  # NOTE: Default categories are set in the collector
+
 
 def run_googletrends():
     start_google_trends_collector(on_event=handle_event)
-
 
 
 # ---- Start collectors in separate threads ----
@@ -106,11 +118,15 @@ if __name__ == "__main__":
     tgn_file = os.path.join(DATA_DIR, "tgn_edges_basic.npz")
     try:
         if build_tgn:
-            if (not os.path.exists(tgn_file)) or os.environ.get("PREPROCESS_FORCE") == "1":
+            if (not os.path.exists(tgn_file)) or os.environ.get(
+                "PREPROCESS_FORCE"
+            ) == "1":
                 print("[main] Running preprocessing (build_tgn)...")
                 build_tgn()
             else:
-                print("[main] TGN file exists, skipping preprocessing. Set PREPROCESS_FORCE=1 to force.")
+                print(
+                    "[main] TGN file exists, skipping preprocessing. Set PREPROCESS_FORCE=1 to force."
+                )
         else:
             print("[main] build_tgn not available; skipping preprocessing.")
     except Exception as e:

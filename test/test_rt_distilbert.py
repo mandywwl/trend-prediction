@@ -2,10 +2,13 @@ import time
 import numpy as np
 
 from embeddings.rt_distilbert import RealtimeTextEmbedder
+from config.config import EMBEDDER_P95_CPU_MS
 
 
 def test_realtime_embedder_cache_and_latency():
-    embedder = RealtimeTextEmbedder(batch_size=2, max_latency_ms=10, device="cpu", cache_ttl=10)
+    embedder = RealtimeTextEmbedder(
+        batch_size=2, max_latency_ms=10, device="cpu", cache_ttl=10
+    )
 
     # Cold encode
     start = time.perf_counter()
@@ -20,7 +23,7 @@ def test_realtime_embedder_cache_and_latency():
     assert np.allclose(emb1, emb2, atol=1e-6)
     assert warm * 3 < cold
 
-    # Latency check (p95 <100ms for short texts)
+    # Latency check (p95 below configured CPU target for short texts)
     embedder.encode(["warmup"])  # warm-up
     durations = []
     for i in range(20):
@@ -29,4 +32,4 @@ def test_realtime_embedder_cache_and_latency():
         embedder.encode([t])
         durations.append(time.perf_counter() - start)
     p95 = np.percentile(durations, 95) * 1000
-    assert p95 < 100
+    assert p95 < EMBEDDER_P95_CPU_MS

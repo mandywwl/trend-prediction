@@ -1,14 +1,17 @@
-from __future__ import annotations # line to postpone postpone evaluation of type annotations
-
 """Event processing utilities for the streaming runtime."""
 
-import numpy as np
-import time
+from __future__ import annotations
 
+import time
 from typing import Any, Callable, Dict, Sequence
+
+import numpy as np
+
 from embeddings.rt_distilbert import RealtimeTextEmbedder
 from robustness.spam_filter import SpamScorer
 from robustness.adaptive_thresholds import SensitivityController
+from config.config import EMBED_PREPROC_BUDGET_MS
+from config.schemas import Event, Features
 
 
 class EmbeddingPreprocessor:
@@ -35,17 +38,21 @@ class EmbeddingPreprocessor:
                 ``"text"``, ``"tweet_text"`` and ``"caption"``.
         """
         self.embedder = embedder
-        self.text_fields = list(text_fields) if text_fields is not None else [
-            "text",
-            "tweet_text",
-            "caption",
-            "description",
-        ]
+        self.text_fields = (
+            list(text_fields)
+            if text_fields is not None
+            else [
+                "text",
+                "tweet_text",
+                "caption",
+                "description",
+            ]
+        )
 
         self._zero_emb: np.ndarray | None = None
 
     # ------------------------------------------------------------------
-    def _extract_text(self, event: Dict[str, Any]) -> str | None:
+    def _extract_text(self, event: Event) -> str | None:
         for field in self.text_fields:
             value = event.get(field)
             if isinstance(value, str) and value.strip():
@@ -53,12 +60,13 @@ class EmbeddingPreprocessor:
         return None
 
     # ------------------------------------------------------------------
-    def __call__(self, event: Dict[str, Any], *, light: bool = False) -> Dict[str, Any]:
+    def __call__(self, event: Event, *, light: bool = False) -> Event:
         """Process ``event`` in-place and return it.
 
         If no text field is found a zero embedding is attached to satisfy the
         downstream schema.
         """
+        t0 = time.perf_counter()
         text = self._extract_text(event)
         if text is None or light:
             if self._zero_emb is None:
@@ -68,8 +76,14 @@ class EmbeddingPreprocessor:
         else:
             emb = self.embedder.encode([text])[0]
 
-        features = event.setdefault("features", {})
-        features["text_emb"] = emb.tolist()
+        features: Features = event.setdefault("features", {})
+        features["text_emb"] = emb
+
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        if duration_ms > EMBED_PREPROC_BUDGET_MS:
+            print(
+                f"[EmbeddingPreprocessor] budget exceeded: {duration_ms:.1f}ms > {EMBED_PREPROC_BUDGET_MS}ms"
+            )
         return event
 
 
@@ -99,7 +113,7 @@ class EventHandler:
         self.sensitivity = sensitivity
 
     # ------------------------------------------------------------------
-    def handle(self, event: Dict[str, Any]) -> Any:
+    def handle(self, event: Event) -> Any:
         """Preprocess ``event`` and forward it to inference.
 
         If a sensitivity controller is provided and currently applying
@@ -129,7 +143,7 @@ class EventHandler:
             try:
                 self.sensitivity.record_event(is_spam=is_spam, latency_ms=latency_ms)
             except Exception:
-                pass # never let adaptation interfere with the hot path
+                pass  # never let adaptation interfere with the hot path
 
             # Expose suggested sampler size for downstream components
             pol = self.sensitivity.policy()
