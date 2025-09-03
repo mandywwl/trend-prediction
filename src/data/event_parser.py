@@ -9,7 +9,7 @@ def _slugify(text: str) -> str:
 
 def parse_event(event):
     """Parse a raw event into structured components for graph processing.
-    Standardizes identifiers and timestamps across platforms (user IDs, tweet IDs, video IDs).
+    Standardises identifiers and timestamps across platforms (user IDs, tweet IDs, video IDs).
     """
     source = event.get("source")
     event_type = event.get("type")

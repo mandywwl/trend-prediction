@@ -1,10 +1,4 @@
-import sys
-from pathlib import Path
-
-# Ensure src is on the path
-sys.path.append(str(Path(__file__).resolve().parents[1] / "src"))
-
-from utils.event_parser import parse_event
+from data.event_parser import parse_event
 
 
 def test_google_trends_context_parsing():
@@ -21,3 +15,4 @@ def test_google_trends_context_parsing():
     assert len(context_edges) == 2
     assert all(e[1] == "trend_sample_term" for e in context_edges)
     assert {e[2] for e in context_edges} == {"ctx_breaking_news", "ctx_some_article"}
+

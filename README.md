@@ -20,11 +20,14 @@ Upgrade packaging tools (recommended):
 python -m pip install -U pip setuptools wheel
 ```
 
-## 2) Install base dependencies (works everywhere)
+## 2) Install the package (editable mode)
+Instead of juggling relative imports, this repo uses a `pyproject.toml`.
+Install everything into your venv:
 
 ```bash
-pip install -r requirements-base.txt
+pip install -e
 ```
+This registers `src/` as a proper package (`trend-prediction`), so you can import modules anywhere without touching `PYTHONPATH`.
 
 ## 3) Install ONE platform-specific Torch stack
 
@@ -46,7 +49,7 @@ pip install --extra-index-url https://download.pytorch.org/whl/cu118 -r requirem
 # pip install -f https://data.pyg.org/whl/torch-2.7.1+cu118.html torch-geometric
 ```
 
-> If you see **“No matching distribution found for torch==…+cu118”** on a **Mac**, you’ve selected the CUDA file by mistake—use `requirements-mac.txt` instead.
+> If you see **“No matching distribution found for torch==…+cu118”** on a **Mac**, you’ve selected the CUDA file by mistake. Use `requirements-mac.txt` instead.
 
 ## 4) Install Playwright browsers (once)
 
@@ -71,5 +74,12 @@ PY
 ## 6) Run the app
 
 ```bash
-python src/main.py
+python -m serving.main
+```
+(You can also run it as python src/serving/main.py, but the -m form ensures package-relative imports work consistently.)
+
+## 7) Run tests
+Tests live in the `tests/` folder at repo root. After installation, just run:
+```bash
+pytest
 ```

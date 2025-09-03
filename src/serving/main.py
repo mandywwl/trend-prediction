@@ -1,25 +1,26 @@
 from collectors.twitter import fake_twitter_stream
 from collectors.youtube import start_youtube_api_collector
 from collectors.google_trends import start_google_trends_collector
-from embeddings.rt_distilbert import RealtimeTextEmbedder
+from features.text_rt_distilbert import RealtimeTextEmbedder
 from graph.builder import GraphBuilder
 from robustness.spam_filter import SpamScorer
 from robustness.adaptive_thresholds import SensitivityController
-from runtime.event_handler import EventHandler
+from serving.event_handler import EventHandler
+from utils.io import ensure_dir
+from pathlib import Path
 import json
 import os
 import threading
 import torch
 
 try:
-    from preprocessing.preprocess_tgn import build_tgn
+    from data.preprocessing import build_tgn
 except Exception:
     build_tgn = None
 
 
 # Directory to save data
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-os.makedirs(DATA_DIR, exist_ok=True)
+DATA_DIR = ensure_dir(Path(__file__).resolve().parents[2] / "datasets")
 
 # --- Credentials and configuration ---
 # TODO (for production): Shift to environment variables or secure vaults
@@ -31,7 +32,7 @@ KEYWORDS = [
     "viral",
 ]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
 
-# Initialize components
+# Initialise components
 spam_scorer = SpamScorer()
 graph = GraphBuilder(spam_scorer=spam_scorer)
 sensitivity = SensitivityController()
@@ -60,19 +61,19 @@ handler = EventHandler(
 
 # ---- Utility functions ----
 def save_graph(graph_obj, filename):
-    path = os.path.join(DATA_DIR, filename)
+    path = DATA_DIR / filename
     torch.save(graph_obj, path)
     print(f"Graph saved to {path}")
 
 
 def save_event(event, filename="events.jsonl"):
-    path = os.path.join(DATA_DIR, filename)
-    with open(path, "a") as f:
+    path = DATA_DIR / filename
+    with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
 
 
 def load_graph(filename):
-    path = os.path.join(DATA_DIR, filename)
+    path = DATA_DIR / filename
     return torch.load(path)
 
 
@@ -115,12 +116,10 @@ def run_googletrends():
 # ---- Start collectors in separate threads ----
 if __name__ == "__main__":
     # Ensure preprocessing output exists (auto-run if missing). Set PREPROCESS_FORCE=1 to force rebuild.
-    tgn_file = os.path.join(DATA_DIR, "tgn_edges_basic.npz")
+    tgn_file = DATA_DIR / "tgn_edges_basic.npz"
     try:
         if build_tgn:
-            if (not os.path.exists(tgn_file)) or os.environ.get(
-                "PREPROCESS_FORCE"
-            ) == "1":
+            if (not tgn_file.exists()) or os.environ.get("PREPROCESS_FORCE") == "1":
                 print("[main] Running preprocessing (build_tgn)...")
                 build_tgn()
             else:

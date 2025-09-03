@@ -1,7 +1,7 @@
 import numpy as np
 
-from embeddings.rt_distilbert import RealtimeTextEmbedder
-from runtime.event_handler import EmbeddingPreprocessor, EventHandler
+from features.text_rt_distilbert import RealtimeTextEmbedder
+from serving.event_handler import EmbeddingPreprocessor, EventHandler
 from config.schemas import Event
 
 

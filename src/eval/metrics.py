@@ -54,7 +54,7 @@ class EmergenceLabelBuffer:
         unique_users_base: int = 50,
         delta_hours: Optional[int] = None,
         window_min: Optional[int] = None,
-        log_path: str = os.path.join("data", "emergence_labels.log"),
+        log_path: str = os.path.join("datasets", "emergence_labels.log"),
     ) -> None:
         self.sensitivity = sensitivity
         self.growth_factor_base = float(growth_factor_base)

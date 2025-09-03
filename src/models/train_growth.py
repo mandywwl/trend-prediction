@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from config.config import HUBER_DELTA_DEFAULT
-from objectives.huber_loss import HuberLoss, log_huber_vs_mse_curve
+from models.losses import HuberLoss, log_huber_vs_mse_curve
 
 
 def _maybe_load_yaml(path: Optional[str]) -> Dict[str, Any]:
@@ -59,7 +59,7 @@ def train_growth(yaml_path: Optional[str] = None) -> None:
         optim.step()
 
     # Log Huber vs MSE curve for ablations
-    out_path = os.path.join("data", "huber_vs_mse.csv")
+    out_path = os.path.join("datasets", "huber_vs_mse.csv")
     log_huber_vs_mse_curve(path=out_path, delta=delta if delta is not None else HUBER_DELTA_DEFAULT)
 
 

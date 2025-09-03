@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Sequence
 
 import numpy as np
 
-from embeddings.rt_distilbert import RealtimeTextEmbedder
+from features.text_rt_distilbert import RealtimeTextEmbedder
 from robustness.spam_filter import SpamScorer
 from robustness.adaptive_thresholds import SensitivityController
 from config.config import EMBED_PREPROC_BUDGET_MS

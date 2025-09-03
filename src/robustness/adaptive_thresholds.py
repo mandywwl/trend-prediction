@@ -68,7 +68,7 @@ class SensitivityConfig:
     raise_factor: float = THRESH_RAISE_FACTOR
     max_multiplier_of_baseline: float = 2.0
     decay_alpha: float = THRESH_DECAY_RATE
-    log_path: str = os.path.join("data", "adaptive_thresholds.log")
+    log_path: str = os.path.join("datasets", "adaptive_thresholds.log")
     window_minutes: int = SPAM_WINDOW_MIN
 
 

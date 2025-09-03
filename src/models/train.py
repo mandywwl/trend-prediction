@@ -3,7 +3,7 @@ import os
 import torch
 import logging
 from datetime import datetime
-from model.tgn import TGNModel
+from models.tgn import TGNModel
 from robustness.noise_injection import inject_noise
 from config.schemas import Batch
 
@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Load the preprocessed data
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-data_dir = os.path.join(project_root, "data/tgn_edges_basic.npz")
+data_dir = os.path.join(project_root, "datasets/tgn_edges_basic.npz")
 data = np.load(data_dir, allow_pickle=True)
 
 src_arr = data["src"]

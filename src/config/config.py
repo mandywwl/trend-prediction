@@ -37,8 +37,8 @@ MAX_NODES: int = 1_000_000  # example cap; keep current behaviour if not used
 DEFAULT_TEXT_EMB_POLICY: str = "zeros"  # "zeros" | "mean" | "learned_unknown"
 
 # IO paths (keep existing if already defined elsewhere)
-METRICS_SNAPSHOT_DIR: str = "data/metrics_hourly"
-PREDICTIONS_CACHE_PATH: str = "data/predictions_cache.json"
+METRICS_SNAPSHOT_DIR: str = "datasets/metrics_hourly"
+PREDICTIONS_CACHE_PATH: str = "datasets/predictions_cache.json"
 
 # Regions
 REGION_DEFAULTS: tuple[str, ...] = ("SG",)

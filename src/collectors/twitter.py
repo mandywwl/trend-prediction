@@ -5,7 +5,7 @@ from datetime import datetime
 class TwitterCollector(tweepy.StreamingClient):
     """
     Twitter/X Streaming Collector using Tweepy v2.
-    Ingests tweets in real-time and standardizes events for processing.
+    Ingests tweets in real-time and standardises events for processing.
     """
     def __init__(self, bearer_token, keywords=None, on_event=None):
         """
@@ -25,7 +25,7 @@ class TwitterCollector(tweepy.StreamingClient):
         """
         Called for every new tweet event matching the stream rules.
         """
-        # Standardize event schema
+        # Standardise event schema
         event = {
             "timestamp": tweet.created_at.isoformat(),
             "user_id": f"u{tweet.author_id}",

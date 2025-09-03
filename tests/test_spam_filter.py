@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 
 from robustness.spam_filter import SpamScorer
 from graph.builder import GraphBuilder
-from runtime.event_handler import EventHandler
-from embeddings.rt_distilbert import RealtimeTextEmbedder
+from serving.event_handler import EventHandler
+from features.text_rt_distilbert import RealtimeTextEmbedder
 
 
 def _spam_user():

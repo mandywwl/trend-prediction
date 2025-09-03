@@ -2,9 +2,9 @@ import torch
 
 from datetime import datetime
 from typing import Dict, List, Optional
-from utils.event_parser import parse_event
+from data.event_parser import parse_event
 from graph.decay import apply_time_decay
-from utils.validation import validate_graph
+from data.validation import validate_graph
 from torch_geometric.data import TemporalData
 from robustness.spam_filter import SpamScorer
 
