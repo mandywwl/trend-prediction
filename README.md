@@ -74,9 +74,9 @@ PY
 ## 6) Run the app
 
 ```bash
-python -m serving.main
+python -m service.main
 ```
-(You can also run it as python src/serving/main.py, but the -m form ensures package-relative imports work consistently.)
+(You can also run it as python src/service/main.py, but the -m form ensures package-relative imports work consistently.)
 
 ## 7) Run tests
 Tests live in the `tests/` folder at repo root. After installation, just run:

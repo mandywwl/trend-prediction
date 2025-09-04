@@ -2,19 +2,20 @@ import torch
 
 from datetime import datetime
 from typing import Dict, List, Optional
-from data.event_parser import parse_event
-from graph.decay import apply_time_decay
-from data.validation import validate_graph
+from data_pipeline.event_parser import parse_event
+from data_pipeline.decay import apply_time_decay
+from data_pipeline.validation import validate_graph
 from torch_geometric.data import TemporalData
-from robustness.spam_filter import SpamScorer
+from model.spam_filter import SpamScorer
 
 
 class GraphBuilder:
-    """ Builds a temporal graph from event data usable by PyG TGN model.
+    """Builds a temporal graph from event data usable by PyG TGN model.
 
-        Events are streamed in and converted into lists of source nodes, destination nodes, timestamps and edge attributes. Nodes are tracked
-        via internal mapping from their string identifiers to an integer index so that the graph can grow beyond memory limits without starting a full adjacency structure.
+    Events are streamed in and converted into lists of source nodes, destination nodes, timestamps and edge attributes. Nodes are tracked
+    via internal mapping from their string identifiers to an integer index so that the graph can grow beyond memory limits without starting a full adjacency structure.
     """
+
     def __init__(
         self,
         reference_time: Optional[datetime] = None,
@@ -57,7 +58,6 @@ class GraphBuilder:
                 self.msg.append([weight])
                 print(f"{source} -> {target} ({label}) - weight={weight:.4f}")
 
-
     def _add_node(self, node: Optional[str]) -> Optional[int]:
         """Register a node string and return its integer index."""
         if node is None:
@@ -67,7 +67,6 @@ class GraphBuilder:
             self.node_map[node] = idx
             self.node_types[idx] = self._infer_type(node)
         return self.node_map[node]
-
 
     def _infer_type(self, node: str) -> str:
         if node.startswith("h_"):
@@ -83,10 +82,8 @@ class GraphBuilder:
         # TODO (for production): Add more types
         return "unknown"
 
-
     def validate(self):
         validate_graph(self.src, self.dst)
-
 
     def to_temporal_data(self) -> TemporalData:
         """Return collected edges as a :class: `TemporalData` object."""

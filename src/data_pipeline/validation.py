@@ -1,5 +1,5 @@
 def validate_graph(src, dst):
-    """ Simple validation for the temporal edge stream
+    """Simple validation for the temporal edge stream
     Currently checks only for self-loops to keep memory usage minimal.
     """
     try:

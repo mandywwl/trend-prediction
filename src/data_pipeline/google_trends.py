@@ -17,7 +17,13 @@ def _slugify(text: str) -> str:
     return text.strip("_")
 
 
-def start_google_trends_collector(on_event=None, region: str = "US", category: str = "all", count: int = 20, interval: int = 3600):
+def start_google_trends_collector(
+    on_event=None,
+    region: str = "US",
+    category: str = "all",
+    count: int = 20,
+    interval: int = 3600,
+):
     """Poll Google Trends' realtime trending searches every ``interval`` seconds.
 
     Parameters
@@ -41,7 +47,9 @@ def start_google_trends_collector(on_event=None, region: str = "US", category: s
 
     while True:
         try:
-            df = pytrends.realtime_trending_searches(pn=region, cat=category, count=count)
+            df = pytrends.realtime_trending_searches(
+                pn=region, cat=category, count=count
+            )
             for _, row in df.iterrows():
                 data = row.to_dict()
                 term = data.get("query") or data.get("title")

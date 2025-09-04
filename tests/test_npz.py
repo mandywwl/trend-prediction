@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from pathlib import Path
 
+
 def test_npz():
     """Test the NPZ file basic structure and contents."""
     path = Path(__file__).parents[1] / "datasets" / "tgn_edges_basic.npz"

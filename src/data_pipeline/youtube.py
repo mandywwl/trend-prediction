@@ -3,7 +3,9 @@ from datetime import datetime
 import time
 
 
-def start_youtube_api_collector(api_key, on_event=None, categories=None, max_results=10, region_code="US", delay=1.0):
+def start_youtube_api_collector(
+    api_key, on_event=None, categories=None, max_results=10, region_code="US", delay=1.0
+):
     """
     Start collecting trending YouTube videos using the YouTube Data API.
     :param api_key: YouTube Data API key
@@ -16,7 +18,14 @@ def start_youtube_api_collector(api_key, on_event=None, categories=None, max_res
     print("[YouTube Collector] Starting stream...")
 
     if categories is None:
-        categories = ["10", "17", "20", "24", "25", "28"]  # Default categories: Music, Sports, Gaming, Entertainment, News & Politics, Science & Technology
+        categories = [
+            "10",
+            "17",
+            "20",
+            "24",
+            "25",
+            "28",
+        ]  # Default categories: Music, Sports, Gaming, Entertainment, News & Politics, Science & Technology
     youtube = build("youtube", "v3", developerKey=api_key)
     for category in categories:
         print(f"[YouTube Collector] Fetching trending videos for category: {category}")
@@ -26,7 +35,7 @@ def start_youtube_api_collector(api_key, on_event=None, categories=None, max_res
                 chart="mostPopular",
                 regionCode=region_code,
                 videoCategoryId=category,
-                maxResults=max_results
+                maxResults=max_results,
             )
             response = request.execute()
         except Exception as e:
@@ -35,10 +44,9 @@ def start_youtube_api_collector(api_key, on_event=None, categories=None, max_res
         for item in response.get("items", []):
             try:
                 video_id = item["id"]
-                channel_title = item['snippet']['channelTitle']
-                video_title = item['snippet']['title']
-                description = item['snippet'].get('description', "") # Optional
-                tags = item['snippet'].get('tags', [])
+                channel_title = item["snippet"]["channelTitle"]
+                video_title = item["snippet"]["title"]
+                tags = item["snippet"].get("tags", [])
                 hashtags = [t for t in tags if t.startswith("#")]
                 event = {
                     "timestamp": datetime.now().isoformat(),
@@ -61,4 +69,3 @@ def start_youtube_api_collector(api_key, on_event=None, categories=None, max_res
             except Exception as e:
                 print(f"[YouTube API Collector] Error processing item {video_id}: {e}")
                 continue
-    

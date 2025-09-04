@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Minimal production-ready TGN inference service.
 
 Wraps a trained Temporal Graph Network (TGN) for online inference in an
@@ -14,7 +12,7 @@ Key features:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 import json
 import time
 
@@ -26,7 +24,7 @@ from config.config import (
     DEFAULT_TEXT_EMB_POLICY,
 )
 from config.schemas import Event
-from models.tgn import TGNModel
+from model.tgn import TGNModel
 from utils.io import ensure_dir
 
 
@@ -310,4 +308,3 @@ class TGNInferenceService:
         # Produce per-topic score dictionary (single topic for now)
         score = float(probs[0].clamp(0.0, 1.0).item())
         return {"topic:0": score}
-

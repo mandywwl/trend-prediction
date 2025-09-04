@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-from features.text_rt_distilbert import RealtimeTextEmbedder
+from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
 from config.config import EMBEDDER_P95_CPU_MS
 
 

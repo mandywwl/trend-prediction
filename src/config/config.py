@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 """Project-wide configuration constants."""
 
 # Online evaluation
-DELTA_HOURS: int = 2         # Δ
-WINDOW_MIN: int = 60         # W
+DELTA_HOURS: int = 2  # Δ
+WINDOW_MIN: int = 60  # W
 K_DEFAULT: int = 5
 K_OPTIONS: tuple[int, ...] = (5, 10)
 
@@ -18,10 +16,10 @@ EMBED_PREPROC_BUDGET_MS: int = 200  # additional budget in Story 2
 
 # Robustness & sensitivity
 SPAM_WINDOW_MIN: int = 60
-SPAM_RATE_SPIKE: float = 0.20       # >=20% considered spike
-THRESH_RAISE_FACTOR: float = 1.20   # +20% during spike
-THRESH_DECAY_RATE: float = 0.9      # multiplicative decay per window
-EDGE_WEIGHT_MIN: float = 0.2        # clamp for down-weighting
+SPAM_RATE_SPIKE: float = 0.20  # >=20% considered spike
+THRESH_RAISE_FACTOR: float = 1.20  # +20% during spike
+THRESH_DECAY_RATE: float = 0.9  # multiplicative decay per window
+EDGE_WEIGHT_MIN: float = 0.2  # clamp for down-weighting
 
 # Synthetic noise injection
 NOISE_P_DEFAULT: float = 0.08

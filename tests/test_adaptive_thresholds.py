@@ -1,4 +1,4 @@
-from robustness.adaptive_thresholds import (
+from model.adaptive_thresholds import (
     SensitivityController,
     SensitivityConfig,
     SLOs,

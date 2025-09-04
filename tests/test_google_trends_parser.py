@@ -1,4 +1,4 @@
-from data.event_parser import parse_event
+from data_pipeline.event_parser import parse_event
 
 
 def test_google_trends_context_parsing():
@@ -15,4 +15,3 @@ def test_google_trends_context_parsing():
     assert len(context_edges) == 2
     assert all(e[1] == "trend_sample_term" for e in context_edges)
     assert {e[2] for e in context_edges} == {"ctx_breaking_news", "ctx_some_article"}
-
