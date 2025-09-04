@@ -271,8 +271,7 @@ def render_panel(
 
     # Down-weighted % from metrics; if absent, compute from events.jsonl (last 24h)
     downweighted_pct: Optional[float] = None
-    # try metrics snapshot first
-    latest_dw = None
+    latest_dw = None  # try metrics snapshot first
     latest_ts = None
     for s in _last_24h_filter(metrics_snaps):
         if s.downweighted_pct is None:
