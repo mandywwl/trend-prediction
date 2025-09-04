@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-"""Minimal production-ready TGN inference service.
+"""Production-ready TGN inference service for online trend prediction.
 
-Wraps a trained Temporal Graph Network (TGN) for online inference in an
-event-driven pipeline. Each event updates the temporal memory and triggers a
-forward pass that yields per-topic trend emergence scores in [0, 1].
-
-Key features:
-- LRU-based soft memory limiting via MAX_NODES.
-- Missing text embeddings handled via DEFAULT_TEXT_EMB_POLICY.
-- Append-only logging of update and forward latencies.
+Provides LRU memory management, configurable embedding policies for missing 
+features, and latency logging for event-driven pipelines.
 """
 
 from dataclasses import dataclass
