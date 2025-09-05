@@ -1,0 +1,21 @@
+{
+  "precision_at_k": {
+    "k5": 0.9,
+    "k10": 0.8,
+    "support": 50
+  },
+  "latency": {
+    "median_ms": 10,
+    "p95_ms": 12,
+    "per_stage_ms": {
+      "ingest": 0,
+      "preprocess": 3,
+      "model_update_forward": 4,
+      "postprocess": 0
+    }
+  },
+  "meta": {
+    "source": "end_to_end_test",
+    "generated_at": "2025-09-05T13:58:51.768615+00:00"
+  }
+}
