@@ -21,7 +21,7 @@ sys.path.insert(0, str(src_path))
 
 from config.config import SLO_MED_MS, SLO_P95_MS, METRICS_SNAPSHOT_DIR
 from config.schemas import HourlyMetrics, LatencySummary, StageMs
-from components.layout import (
+from dashboard.layouts.layout import (
     render_metric_card, 
     render_stage_table, 
     render_breach_indicator,
