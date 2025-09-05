@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional
 import numpy as np
 
-from src.config.config import SLO_MED_MS, SLO_P95_MS, BUCKET_TZ, METRICS_SNAPSHOT_DIR
-from src.config.schemas import LatencySummary, HourlyMetrics, StageMs
+from config.config import SLO_MED_MS, SLO_P95_MS, BUCKET_TZ, METRICS_SNAPSHOT_DIR
+from config.schemas import LatencySummary, HourlyMetrics, StageMs
 
 
 def ensure_dir(path: str | Path) -> Path:

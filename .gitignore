@@ -154,3 +154,8 @@ cython_debug/
 
 # VS Code
 .vscode/
+
+# Test data directories
+test_datasets/
+datasets/metrics_hourly/*.json
+datasets/predictions_cache.json
