@@ -1,0 +1,7 @@
+runtime:
+  delta_hours: 3
+  window_min: 120
+  k_default: 10
+  update_interval_sec: 30
+  metrics_snapshot_dir: "test_datasets/metrics_hourly"
+  predictions_cache_path: "test_datasets/predictions_cache.json"
