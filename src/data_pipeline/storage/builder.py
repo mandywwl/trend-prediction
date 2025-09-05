@@ -2,11 +2,11 @@ import torch
 
 from datetime import datetime
 from typing import Dict, List, Optional
-from data_pipeline.event_parser import parse_event
-from data_pipeline.decay import apply_time_decay
-from data_pipeline.validation import validate_graph
+from data_pipeline.transformers.event_parser import parse_event
+from data_pipeline.storage.decay import apply_time_decay
+from data_pipeline.transformers.validation import validate_graph
 from torch_geometric.data import TemporalData
-from model.spam_filter import SpamScorer
+from model.inference.spam_filter import SpamScorer
 
 
 class GraphBuilder:

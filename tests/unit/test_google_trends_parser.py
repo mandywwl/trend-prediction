@@ -1,4 +1,4 @@
-from data_pipeline.event_parser import parse_event
+from data_pipeline.transformers.event_parser import parse_event
 
 
 def test_google_trends_context_parsing():

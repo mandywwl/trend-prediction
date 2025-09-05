@@ -80,7 +80,29 @@ dependencies = [
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["config","data_pipeline","model","service","utils"]
+packages = [
+    "config",
+    "config.environments", 
+    "data_pipeline",
+    "data_pipeline.collectors",
+    "data_pipeline.processors", 
+    "data_pipeline.transformers",
+    "data_pipeline.storage",
+    "model",
+    "model.core",
+    "model.training",
+    "model.inference", 
+    "model.evaluation",
+    "service",
+    "service.api",
+    "service.services",
+    "service.services.inference",
+    "service.services.preprocessing",
+    "service.services.data_collection",
+    "service.services.monitoring",
+    "service.workers",
+    "utils"
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

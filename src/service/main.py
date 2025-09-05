@@ -1,13 +1,13 @@
 """Main entry point for the serving layer."""
 
-from data_pipeline.twitter_collector import fake_twitter_stream
-from data_pipeline.youtube_collector import start_youtube_api_collector
-from data_pipeline.google_trends_collector import start_google_trends_collector
-from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
-from data_pipeline.builder import GraphBuilder
-from model.spam_filter import SpamScorer
-from model.adaptive_thresholds import SensitivityController
-from service.event_handler import EventHandler
+from data_pipeline.collectors.twitter_collector import fake_twitter_stream
+from data_pipeline.collectors.youtube_collector import start_youtube_api_collector
+from data_pipeline.collectors.google_trends_collector import start_google_trends_collector
+from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
+from data_pipeline.storage.builder import GraphBuilder
+from model.inference.spam_filter import SpamScorer
+from model.inference.adaptive_thresholds import SensitivityController
+from service.services.preprocessing.event_handler import EventHandler
 from utils.io import ensure_dir
 from pathlib import Path
 import json
@@ -16,7 +16,7 @@ import threading
 import torch
 
 try:
-    from data_pipeline.preprocessing import build_tgn
+    from data_pipeline.processors.preprocessing import build_tgn
 except Exception:
     build_tgn = None
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from config.config import HUBER_DELTA_DEFAULT
-from model.losses import HuberLoss, log_huber_vs_mse_curve
+from model.core.losses import HuberLoss, log_huber_vs_mse_curve
 
 
 def _maybe_load_yaml(path: Optional[str]) -> Dict[str, Any]:

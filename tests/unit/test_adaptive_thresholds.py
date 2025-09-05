@@ -1,4 +1,4 @@
-from model.adaptive_thresholds import (
+from model.inference.adaptive_thresholds import (
     SensitivityController,
     SensitivityConfig,
     SLOs,
