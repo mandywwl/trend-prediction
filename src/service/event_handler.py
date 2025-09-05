@@ -1,7 +1,7 @@
 """Event processing utilities for the streaming runtime."""
 
 import time
-from typing import Any, Callable, Dict, Sequence
+from typing import Any, Callable, Dict, Sequence, Iterable, Generator, Tuple
 
 import numpy as np
 
@@ -95,6 +95,7 @@ class EventHandler:
         *,
         spam_scorer: SpamScorer | None = None,
         sensitivity: "SensitivityController | None" = None,
+        service: Any | None = None,
     ) -> None:
         """Initialise the handler.
 
@@ -109,6 +110,7 @@ class EventHandler:
         self._infer = infer
         self.spam_scorer = spam_scorer
         self.sensitivity = sensitivity
+        self._service = service  # Optional TGN-like scoring service
 
     # ------------------------------------------------------------------
     def handle(self, event: Event) -> Any:
@@ -148,3 +150,29 @@ class EventHandler:
             processed.setdefault("features", {})["sampler_size"] = pol.sampler_size
 
         return result
+
+    # ------------------------------------------------------------------
+    def on_event(self, event: Event) -> Dict[str, float]:
+        """Thin path: call scoring service once per event.
+
+        Keeps the handler stateless across runs; temporal state (if any)
+        belongs to the injected service.
+        """
+        if self._service is None:
+            # Fallback: run existing pipeline without scores
+            self.handle(event)
+            return {}
+        return self._service.update_and_score(event)
+
+
+# ----------------------------------------------------------------------
+def run_stream(
+    reader: Iterable[Event],
+    handler: EventHandler,
+) -> Generator[Tuple[Event, Dict[str, float]], None, None]:
+    """Yield (event, scores) pairs from a synchronous reader.
+
+    Calls the handler's ``on_event`` exactly once per input event.
+    """
+    for event in reader:
+        yield event, handler.on_event(event)
