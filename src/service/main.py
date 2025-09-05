@@ -1,8 +1,8 @@
 """Main entry point for the serving layer."""
 
-from data_pipeline.twitter import fake_twitter_stream
-from data_pipeline.youtube import start_youtube_api_collector
-from data_pipeline.google_trends import start_google_trends_collector
+from data_pipeline.twitter_collector import fake_twitter_stream
+from data_pipeline.youtube_collector import start_youtube_api_collector
+from data_pipeline.google_trends_collector import start_google_trends_collector
 from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
 from data_pipeline.builder import GraphBuilder
 from model.spam_filter import SpamScorer
