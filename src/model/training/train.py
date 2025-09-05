@@ -3,8 +3,8 @@ import os
 import torch
 import logging
 from datetime import datetime
-from model.tgn import TGNModel
-from model.noise_injection import inject_noise
+from model.core.tgn import TGNModel
+from model.training.noise_injection import inject_noise
 from config.schemas import Batch
 
 logging.basicConfig(level=logging.INFO)

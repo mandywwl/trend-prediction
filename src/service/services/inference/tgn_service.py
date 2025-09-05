@@ -24,7 +24,7 @@ from config.config import (
     DEFAULT_TEXT_EMB_POLICY,
 )
 from config.schemas import Event
-from model.tgn import TGNModel
+from model.core.tgn import TGNModel
 from utils.io import ensure_dir
 
 

@@ -8,13 +8,13 @@ through the EventHandler/GraphBuilder, then saves a TemporalData checkpoint.
 from pathlib import Path
 import time
 
-from data_pipeline.twitter_collector import fake_twitter_stream
-from data_pipeline.google_trends_collector import fake_google_trends_stream
-from data_pipeline.builder import GraphBuilder
-from model.spam_filter import SpamScorer
-from model.adaptive_thresholds import SensitivityController
-from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
-from service.event_handler import EventHandler
+from data_pipeline.collectors.twitter_collector import fake_twitter_stream
+from data_pipeline.collectors.google_trends_collector import fake_google_trends_stream
+from data_pipeline.storage.builder import GraphBuilder
+from model.inference.spam_filter import SpamScorer
+from model.inference.adaptive_thresholds import SensitivityController
+from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
+from service.services.preprocessing.event_handler import EventHandler
 from utils.io import ensure_dir
 
 

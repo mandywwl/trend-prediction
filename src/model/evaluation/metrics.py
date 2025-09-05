@@ -15,7 +15,7 @@ import json
 import os
 
 from config.config import DELTA_HOURS, WINDOW_MIN
-from model.adaptive_thresholds import SensitivityController
+from model.inference.adaptive_thresholds import SensitivityController
 
 
 @dataclass

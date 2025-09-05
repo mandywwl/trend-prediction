@@ -5,9 +5,9 @@ from typing import Any, Callable, Dict, Sequence, Iterable, Generator, Tuple
 
 import numpy as np
 
-from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
-from model.spam_filter import SpamScorer
-from model.adaptive_thresholds import SensitivityController
+from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
+from model.inference.spam_filter import SpamScorer
+from model.inference.adaptive_thresholds import SensitivityController
 from config.config import EMBED_PREPROC_BUDGET_MS
 from config.schemas import Event, Features
 

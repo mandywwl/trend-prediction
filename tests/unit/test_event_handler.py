@@ -1,6 +1,6 @@
 import numpy as np
 
-from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
+from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 from service.event_handler import EmbeddingPreprocessor, EventHandler
 from config.schemas import Event
 
