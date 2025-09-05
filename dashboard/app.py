@@ -26,6 +26,14 @@ except ImportError as e:
     print(f"Warning: Robustness component not available: {e}")
     ROBUSTNESS_AVAILABLE = False
 
+# Import latency component
+try:
+    from components import latency
+    LATENCY_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Latency component not available: {e}")
+    LATENCY_AVAILABLE = False
+
 
 def main():
     """Main dashboard application."""
@@ -50,6 +58,7 @@ def main():
         "Select Panel:",
         options=[
             "📊 Now (Top-K Live)",
+            "⏱️ Latency & SLOs",
             "🛡️ Robustness",
             "📋 About"
         ],
@@ -71,6 +80,8 @@ def main():
     # Main content area
     if panel_option == "📊 Now (Top-K Live)":
         render_topk_panel()
+    elif panel_option == "⏱️ Latency & SLOs":
+        render_latency_panel()
     elif panel_option == "🛡️ Robustness":
         render_robustness_panel()
     elif panel_option == "📋 About":
@@ -99,6 +110,41 @@ def render_topk_panel():
             
     except Exception as e:
         st.error(f"❌ Error rendering Top-K panel: {e}")
+        st.sidebar.error("❌ Panel Error")
+
+
+def render_latency_panel():
+    """Render the latency & SLOs monitoring panel."""
+    if not LATENCY_AVAILABLE:
+        st.warning("🚧 Latency panel not available - missing dependencies")
+        st.write("Install additional dependencies to enable latency monitoring.")
+        return
+        
+    try:
+        panel_result = latency.render_panel()
+        
+        # Show panel status in sidebar
+        st.sidebar.subheader("⏱️ Latency Status")
+        status = panel_result.get("status", "unknown")
+        
+        if status == "success":
+            breach_count = panel_result.get("breach_count", 0)
+            total_count = panel_result.get("total_count", 0)
+            
+            if breach_count == 0:
+                st.sidebar.success(f"✅ All SLOs met ({total_count} hours)")
+            else:
+                st.sidebar.warning(f"⚠️ {breach_count}/{total_count} hours with breaches")
+                
+        elif status == "no_data":
+            st.sidebar.error("❌ No metrics data found")
+        elif status == "no_filtered_data":
+            st.sidebar.info("ℹ️ No data for current filter")
+        else:
+            st.sidebar.info(f"ℹ️ Status: {status}")
+            
+    except Exception as e:
+        st.error(f"❌ Error rendering Latency panel: {e}")
         st.sidebar.error("❌ Panel Error")
 
 
@@ -139,6 +185,14 @@ def render_about_panel():
     - **Configurable K**: Select different K values for Top-K display
     - **Cache Monitoring**: Real-time cache status and updates
     
+    #### Latency & SLOs Panel
+    - **SLO Monitoring**: Track median and P95 latency against configured thresholds
+    - **KPI Cards**: Color-coded metrics showing current latency status
+    - **Trend Charts**: Historical latency trends with SLO threshold lines  
+    - **Per-Stage Breakdown**: Detailed latency analysis by processing stage
+    - **Breach Filtering**: Toggle to show only hours with SLO violations
+    - **Alert Status**: Clear indicators when SLOs are breached
+    
     #### Configuration
     - **Prediction Cache**: Automatically loads from configured cache path
     - **K Options**: Dynamic K selector based on configuration
@@ -155,7 +209,7 @@ def render_about_panel():
     st.subheader("⚙️ Current Configuration")
     
     try:
-        from config.config import PREDICTIONS_CACHE_PATH, DELTA_HOURS, K_OPTIONS
+        from config.config import PREDICTIONS_CACHE_PATH, DELTA_HOURS, K_OPTIONS, SLO_MED_MS, SLO_P95_MS
         
         col1, col2 = st.columns(2)
         
@@ -163,11 +217,13 @@ def render_about_panel():
             st.code(f"""
 Cache Path: {PREDICTIONS_CACHE_PATH}
 Delta Hours: {DELTA_HOURS}
+SLO Median: {SLO_MED_MS}ms
             """)
         
         with col2:
             st.code(f"""
 K Options: {K_OPTIONS}
+SLO P95: {SLO_P95_MS}ms
             """)
             
     except ImportError as e:
