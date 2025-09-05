@@ -3,7 +3,7 @@ import math
 import torch
 
 from config.config import HUBER_DELTA_DEFAULT
-from models.losses import huber_loss, HuberLoss
+from model.core.losses import huber_loss, HuberLoss
 
 
 def test_huber_elementwise_piecewise_matches_definition():

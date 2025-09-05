@@ -37,13 +37,13 @@ def parse_event(event):
         elif event_type == "view":
             outputs.append(("user-viewed", user, content, "viewed"))
 
-    elif source == "tiktok":
-        if event_type == "upload":
-            outputs.append(("user-uploaded", user, content, "uploaded"))
-        elif event_type == "like":
-            outputs.append(("user-liked", user, content, "liked"))
-        elif event_type == "comment":
-            outputs.append(("user-commented", user, content, "commented"))
+    # elif source == "tiktok":
+    #     if event_type == "upload":
+    #         outputs.append(("user-uploaded", user, content, "uploaded"))
+    #     elif event_type == "like":
+    #         outputs.append(("user-liked", user, content, "liked"))
+    #     elif event_type == "comment":
+    #         outputs.append(("user-commented", user, content, "commented"))
 
     elif source == "google_trends":
         # Trend node itself

@@ -73,8 +73,8 @@ class GraphBuilder:
             return "hashtag"
         if node.startswith("yt_v"):
             return "youtube_video"
-        if node.startswith("tk_v"):
-            return "tiktok_video"
+        # if node.startswith("tk_v"):
+        #     return "tiktok_video"
         if node.startswith("trend_"):
             return "trend"
         if node.startswith("ctx_"):

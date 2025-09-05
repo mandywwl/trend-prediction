@@ -131,5 +131,4 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
 
 
 if __name__ == "__main__":
-    # Allow running the script directly
-    build_tgn()
+    build_tgn() # Allow running the script directly
