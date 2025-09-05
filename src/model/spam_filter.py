@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Lightweight spam and bot scoring utilities."""
 
 import math

@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 """Trend emergence labelling with adaptive thresholds.
 
 Reads ``DELTA_HOURS`` and ``WINDOW_MIN`` from :mod:`config.config`. Fetches
-``(theta_g, theta_u)`` from :class:`robustness.adaptive_thresholds.SensitivityController`,
+``(theta_g, theta_u)`` from :class:`model.adaptive_thresholds.SensitivityController`,
 applies them to scale baseline thresholds for growth and unique users, and
 logs applied values per decision for replay. Replay validates that the same
 config values are used and recomputes labels exactly.
@@ -17,7 +15,7 @@ import json
 import os
 
 from config.config import DELTA_HOURS, WINDOW_MIN
-from robustness.adaptive_thresholds import SensitivityController
+from model.adaptive_thresholds import SensitivityController
 
 
 @dataclass
@@ -94,21 +92,23 @@ class EmergenceLabelBuffer:
             and (unique_curr >= uu_thresh)
         )
 
-        self._log(EmergenceDecision(
-            ts=now.isoformat(timespec="seconds"),
-            theta_g=th.theta_g,
-            theta_u=th.theta_u,
-            delta_hours=self.delta_hours,
-            window_min=self.window_min,
-            growth_factor_base=self.growth_factor_base,
-            unique_users_base=self.unique_users_base,
-            growth_factor_threshold=gf_thresh,
-            unique_users_threshold=float(uu_thresh),
-            mentions_curr=mentions_curr,
-            mentions_past=mentions_past,
-            unique_users_curr=unique_curr,
-            label=label,
-        ))
+        self._log(
+            EmergenceDecision(
+                ts=now.isoformat(timespec="seconds"),
+                theta_g=th.theta_g,
+                theta_u=th.theta_u,
+                delta_hours=self.delta_hours,
+                window_min=self.window_min,
+                growth_factor_base=self.growth_factor_base,
+                unique_users_base=self.unique_users_base,
+                growth_factor_threshold=gf_thresh,
+                unique_users_threshold=float(uu_thresh),
+                mentions_curr=mentions_curr,
+                mentions_past=mentions_past,
+                unique_users_curr=unique_curr,
+                label=label,
+            )
+        )
 
         return label
 
@@ -195,4 +195,3 @@ class EmergenceLabelBuffer:
         except Exception:
             # Never let logging crash the pipeline
             pass
-

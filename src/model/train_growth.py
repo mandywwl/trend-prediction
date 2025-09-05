@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Growth forecasting training using robust Huber loss.
 
 Delta defaults to HUBER_DELTA_DEFAULT from config, and can be overridden
@@ -12,7 +10,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from config.config import HUBER_DELTA_DEFAULT
-from models.losses import HuberLoss, log_huber_vs_mse_curve
+from model.losses import HuberLoss, log_huber_vs_mse_curve
 
 
 def _maybe_load_yaml(path: Optional[str]) -> Dict[str, Any]:
@@ -47,7 +45,7 @@ def train_growth(yaml_path: Optional[str] = None) -> None:
     X = torch.randn(n, 16)
     true_w = torch.randn(16, 1)
     y = X @ true_w + 0.1 * torch.randn(n, 1)
-    
+
     # Inject 10% large noise outliers
     idx = torch.randperm(n)[: int(0.10 * n)]
     y[idx] += 10.0 * torch.sign(torch.randn_like(y[idx]))
@@ -61,10 +59,11 @@ def train_growth(yaml_path: Optional[str] = None) -> None:
 
     # Log Huber vs MSE curve for ablations
     out_path = os.path.join("datasets", "huber_vs_mse.csv")
-    log_huber_vs_mse_curve(path=out_path, delta=delta if delta is not None else HUBER_DELTA_DEFAULT)
+    log_huber_vs_mse_curve(
+        path=out_path, delta=delta if delta is not None else HUBER_DELTA_DEFAULT
+    )
 
 
 if __name__ == "__main__":
     # Optional: pass YAML path via TRAIN_GROWTH_CFG env var
     train_growth(os.environ.get("TRAIN_GROWTH_CFG"))
-

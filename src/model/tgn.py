@@ -4,8 +4,9 @@ from torch_geometric.nn.models.tgn import (
     TGNMemory,
     IdentityMessage,
     LastAggregator,
-    TimeEncoder
+    TimeEncoder,
 )
+
 
 class TGNModel(nn.Module):
     def __init__(self, num_nodes, node_feat_dim, edge_feat_dim, time_dim, memory_dim):
@@ -21,15 +22,12 @@ class TGNModel(nn.Module):
             memory_dim=memory_dim,
             time_dim=time_dim,
             message_module=self.message_module,
-            aggregator_module=self.aggregator_module
+            aggregator_module=self.aggregator_module,
         )
 
         self.decoder = nn.Sequential(
-            nn.Linear(memory_dim * 2 + time_dim, 100),
-            nn.ReLU(),
-            nn.Linear(100, 1)
+            nn.Linear(memory_dim * 2 + time_dim, 100), nn.ReLU(), nn.Linear(100, 1)
         )
-
 
     def forward(self, src, dst, t, edge_attr):
         # Get last update time for src node(s)

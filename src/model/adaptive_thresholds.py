@@ -1,7 +1,4 @@
-from __future__ import annotations
-
-""" Adaptive sensitivity and back-pressure controller. """
-
+"""Adaptive sensitivity and back-pressure controller."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta

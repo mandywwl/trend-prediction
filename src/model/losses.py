@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Optional, Literal
 
 import torch
@@ -92,4 +90,3 @@ def log_huber_vs_mse_curve(
         f.write("residual,huber,mse\n")
         for r, h, m in zip(rs.tolist(), hub.tolist(), mse.tolist()):
             f.write(f"{r},{h},{m}\n")
-

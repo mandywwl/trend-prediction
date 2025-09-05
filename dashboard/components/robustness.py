@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Robustness panel component for spam detection monitoring.
 
@@ -108,10 +106,9 @@ def _read_hourly_metrics(dir_path: Path) -> List[RobustnessSnapshot]:
             continue
 
         # timestamp from file metadata if `meta.generated_at` missing
-        ts_iso = (
-            (data.get("meta", {}) or {}).get("generated_at")
-            or (data.get("meta", {}) or {}).get("ts")
-        )
+        ts_iso = (data.get("meta", {}) or {}).get("generated_at") or (
+            data.get("meta", {}) or {}
+        ).get("ts")
         ts = _parse_iso(ts_iso) if isinstance(ts_iso, str) else None
         if ts is None:
             ts = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
@@ -176,7 +173,9 @@ def _theta_series_from_logs(snapshots: List[RobustnessSnapshot]) -> List[ThetaPo
     for s in snapshots:
         if s.theta_g is None or s.theta_u is None:
             continue
-        points.append(ThetaPoint(ts=s.ts, theta_g=float(s.theta_g), theta_u=float(s.theta_u)))
+        points.append(
+            ThetaPoint(ts=s.ts, theta_g=float(s.theta_g), theta_u=float(s.theta_u))
+        )
     return points
 
 
@@ -264,10 +263,12 @@ def render_panel(
     figure = render_theta_figure(theta_points)
 
     # Current spam rate (prefer metrics snapshots if they exist and are fresher)
-    spam_rate = _latest_spam_rate([
-        _last_24h_filter(metrics_snaps),
-        _last_24h_filter(log_snaps),
-    ])
+    spam_rate = _latest_spam_rate(
+        [
+            _last_24h_filter(metrics_snaps),
+            _last_24h_filter(log_snaps),
+        ]
+    )
 
     # Down-weighted % from metrics; if absent, compute from events.jsonl (last 24h)
     downweighted_pct: Optional[float] = None
@@ -294,7 +295,9 @@ def render_panel(
     alert_msg = ""
     if spam_rate is not None and spam_rate >= SPAM_RATE_SPIKE:
         alert_level = "alert"
-        alert_msg = f"Spam rate {spam_rate:.0%} ≥ spike threshold {SPAM_RATE_SPIKE:.0%}."
+        alert_msg = (
+            f"Spam rate {spam_rate:.0%} ≥ spike threshold {SPAM_RATE_SPIKE:.0%}."
+        )
     elif raise_detected:
         alert_level = "warn"
         alert_msg = "Thresholds recently raised due to spam pressure."
@@ -312,4 +315,3 @@ def render_panel(
         "alert": {"level": alert_level, "message": alert_msg},
         "tooltips": tooltips,
     }
-

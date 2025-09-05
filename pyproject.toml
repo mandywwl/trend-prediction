@@ -80,7 +80,7 @@ dependencies = [
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["config","collectors","data","features","graph","models","robustness","metrics","serving","utils"]
+packages = ["config","data_pipeline","model","service","utils"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

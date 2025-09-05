@@ -1,5 +1,6 @@
 import re
 
+
 def _slugify(text: str) -> str:
     """Utility: convert free text into a safe identifier."""
     text = text.lower()
@@ -27,7 +28,7 @@ def parse_event(event):
             outputs.append(("user-retweet", user, content, "retweeted"))
         elif event_type == "like":
             outputs.append(("user-like", user, content, "liked"))
-    
+
     elif source == "youtube":
         if event_type == "upload":
             outputs.append(("user-uploaded", user, content, "uploaded"))

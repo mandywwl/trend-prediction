@@ -3,8 +3,8 @@ import os
 import torch
 import logging
 from datetime import datetime
-from models.tgn import TGNModel
-from robustness.noise_injection import inject_noise
+from model.tgn import TGNModel
+from model.noise_injection import inject_noise
 from config.schemas import Batch
 
 logging.basicConfig(level=logging.INFO)
@@ -60,17 +60,17 @@ edge_attr = torch.FloatTensor(edge_attr_list)
 
 
 # ---------- Model ----------
-MEM_DIM   = 100
-TIME_DIM  = 10
-EDGE_DIM  = edge_attr.shape[1]
+MEM_DIM = 100
+TIME_DIM = 10
+EDGE_DIM = edge_attr.shape[1]
 
 
 model = TGNModel(
-    num_nodes = num_nodes,
-    node_feat_dim = node_feats.shape[1],
-    edge_feat_dim = EDGE_DIM,
-    time_dim = TIME_DIM,
-    memory_dim = MEM_DIM
+    num_nodes=num_nodes,
+    node_feat_dim=node_feats.shape[1],
+    edge_feat_dim=EDGE_DIM,
+    time_dim=TIME_DIM,
+    memory_dim=MEM_DIM,
 )
 
 
@@ -82,14 +82,13 @@ for epoch in range(3):  # TODO: 3 epochs for quick testing; increase for actual 
     model.reset_memory()  # Reset memory state at the start of each epoch
     total_loss = 0.0
 
+    for i in range(len(src) - 1):  # TODO: Add negative sampling
 
-    for i in range(len(src) - 1): # TODO: Add negative sampling
-    
         src_i = src[i].unsqueeze(0).long()
         dst_i = dst[i].unsqueeze(0).long()
         t_i = t[i].unsqueeze(0)
         edge_feat = edge_attr[i].unsqueeze(0)
-        label = torch.tensor([1.0]) # Dummy
+        label = torch.tensor([1.0])  # Dummy
 
         # DEBUG
         if i == 0:
@@ -106,7 +105,7 @@ for epoch in range(3):  # TODO: 3 epochs for quick testing; increase for actual 
         model.memory.detach()
 
         # Update memory
-        t_event = t_i.long() # Convert to long for memory update
+        t_event = t_i.long()  # Convert to long for memory update
         model.memory.update_state(src_i, dst_i, t_event, edge_feat)
-        
+
     print(f"Epoch {epoch} - Loss: {total_loss / (len(src)-1):.4f}")

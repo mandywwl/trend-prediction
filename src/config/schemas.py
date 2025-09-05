@@ -1,9 +1,8 @@
-from __future__ import annotations
-
-""" Schema definitions for structured data used in the project. """
+"""Schema definitions for structured data used in the project."""
 
 from typing import TypedDict, Dict, List
 import numpy as np
+
 
 class Features(TypedDict, total=False):
     text_emb: np.ndarray  # float32, mean pooled
@@ -12,7 +11,7 @@ class Features(TypedDict, total=False):
 
 class Event(TypedDict):
     event_id: str
-    ts_iso: str              # timezone-aware ISO8601 (UTC)
+    ts_iso: str  # timezone-aware ISO8601 (UTC)
     actor_id: str
     target_ids: List[str]
     edge_type: str

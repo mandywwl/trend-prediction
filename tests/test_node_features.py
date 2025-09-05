@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from pathlib import Path
 
+
 def test_node_features():
     """Test the node features in NPZ file coercible and finite."""
     path = Path(__file__).parents[1] / "datasets" / "tgn_edges_basic.npz"
@@ -14,7 +15,7 @@ def test_node_features():
 
     assert len(node_features) == len(node_map) and len(node_map) > 0
 
-    n = min(20, len(node_map)) # Check first 20 or fewer
+    n = min(20, len(node_map))  # Check first 20 or fewer
     for i in range(n):
         feat = node_features[i]
         # Coerce to float array; allow ragged/object entries

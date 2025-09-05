@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Event processing utilities for the streaming runtime."""
 
 import time
@@ -7,9 +5,9 @@ from typing import Any, Callable, Dict, Sequence
 
 import numpy as np
 
-from features.text_rt_distilbert import RealtimeTextEmbedder
-from robustness.spam_filter import SpamScorer
-from robustness.adaptive_thresholds import SensitivityController
+from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
+from model.spam_filter import SpamScorer
+from model.adaptive_thresholds import SensitivityController
 from config.config import EMBED_PREPROC_BUDGET_MS
 from config.schemas import Event, Features
 

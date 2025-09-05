@@ -1,2 +1,1 @@
 """Dashboard components namespace."""
-

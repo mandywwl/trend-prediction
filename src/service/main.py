@@ -1,13 +1,13 @@
-""" Main entry point for the serving layer."""
+"""Main entry point for the serving layer."""
 
-from collectors.twitter import fake_twitter_stream
-from collectors.youtube import start_youtube_api_collector
-from collectors.google_trends import start_google_trends_collector
-from features.text_rt_distilbert import RealtimeTextEmbedder
-from graph.builder import GraphBuilder
-from robustness.spam_filter import SpamScorer
-from robustness.adaptive_thresholds import SensitivityController
-from serving.event_handler import EventHandler
+from data_pipeline.twitter import fake_twitter_stream
+from data_pipeline.youtube import start_youtube_api_collector
+from data_pipeline.google_trends import start_google_trends_collector
+from data_pipeline.text_rt_distilbert import RealtimeTextEmbedder
+from data_pipeline.builder import GraphBuilder
+from model.spam_filter import SpamScorer
+from model.adaptive_thresholds import SensitivityController
+from service.event_handler import EventHandler
 from utils.io import ensure_dir
 from pathlib import Path
 import json
@@ -16,7 +16,7 @@ import threading
 import torch
 
 try:
-    from data.preprocessing import build_tgn
+    from data_pipeline.preprocessing import build_tgn
 except Exception:
     build_tgn = None
 
@@ -48,7 +48,7 @@ def _infer_into_graph(event):
     """Minimal inference hook: push event into graph builder.
 
     This can later be swapped for a TGN inference call. Keeping a separate
-    function allows EventHandler to remain decoupled from graph internals.
+    function allows EventHandler to remain decoupled from data_pipeline internals.
     """
     graph.process_event(event)
 

@@ -6,4 +6,3 @@ exposes a small `render_*` function that returns primitives like
 matplotlib figures and simple values that can be embedded in Streamlit,
 Dash, or custom UIs.
 """
-

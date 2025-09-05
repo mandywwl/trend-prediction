@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import copy
 import logging
 import random
@@ -7,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict
 
 from config import config
-from config.schemas import Batch, Event
+from config.schemas import Batch
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +20,9 @@ def _jitter_ts(ts_iso: str, rng: random.Random) -> str:
     return (dt + delta).isoformat()
 
 
-def inject_noise(batch: Batch, p: float | None = None, seed: int | None = None) -> Batch:
+def inject_noise(
+    batch: Batch, p: float | None = None, seed: int | None = None
+) -> Batch:
     """Inject synthetic noise into a batch of events.
 
     Parameters
