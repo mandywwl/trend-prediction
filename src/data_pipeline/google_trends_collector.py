@@ -1,7 +1,6 @@
 from datetime import datetime
 import time
 import re
-
 # Try to import the pytrends library
 try:
     from pytrends.request import TrendReq
