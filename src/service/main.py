@@ -28,7 +28,12 @@ from model.inference.adaptive_thresholds import SensitivityController
 from service.services.preprocessing.event_handler import EventHandler
 from service.runtime_glue import RuntimeGlue, RuntimeConfig
 from utils.io import ensure_dir
+from utils.logging import get_logger, service_logger, setup_logging
 from config.schemas import Event
+
+# Setup logging
+setup_logging()
+logger = get_logger(__name__)
 
 try:
     from data_pipeline.processors.preprocessing import build_tgn
@@ -57,6 +62,7 @@ class IntegratedEventHandler:
         self.graph_builder = graph_builder
         self.spam_scorer = spam_scorer
         self.sensitivity_controller = sensitivity_controller
+        self.logger = get_logger(f"{__name__}.IntegratedEventHandler")
         
         # Create the underlying EventHandler
         def _infer_into_graph(event):
@@ -93,7 +99,7 @@ class IntegratedEventHandler:
             return scores
             
         except Exception as e:
-            print(f"Error processing event: {e}")
+            self.logger.error(f"Error processing event: {e}")
             return {}
     
     def _save_checkpoint(self):
@@ -102,9 +108,9 @@ class IntegratedEventHandler:
             checkpoint_path = DATA_DIR / f"checkpoint_{self.event_counter}.pt"
             import torch
             torch.save(self.graph_builder.to_temporal_data(), checkpoint_path)
-            print(f"Saved checkpoint: {checkpoint_path}")
+            self.logger.info(f"Saved checkpoint: {checkpoint_path}")
         except Exception as e:
-            print(f"Error saving checkpoint: {e}")
+            self.logger.error(f"Error saving checkpoint: {e}")
 
 
 def setup_preprocessing():
@@ -112,18 +118,18 @@ def setup_preprocessing():
     tgn_file = DATA_DIR / "tgn_edges_basic.npz"
     
     if not build_tgn:
-        print("[setup] build_tgn not available; skipping preprocessing.")
+        logger.info("build_tgn not available; skipping preprocessing")
         return
     
     try:
         force_rebuild = os.environ.get("PREPROCESS_FORCE") == "1"
         if not tgn_file.exists() or force_rebuild:
-            print("[setup] Running preprocessing (build_tgn)...")
+            logger.info("Running preprocessing (build_tgn)...")
             build_tgn()
         else:
-            print("[setup] TGN file exists, skipping preprocessing.")
+            logger.info("TGN file exists, skipping preprocessing")
     except Exception as e:
-        print(f"[setup] Preprocessing failed: {e}")
+        logger.error(f"Preprocessing failed: {e}")
 
 
 def create_event_stream():
@@ -131,6 +137,7 @@ def create_event_stream():
     import queue
     import time
     
+    stream_logger = get_logger(f"{__name__}.event_stream")
     event_queue = queue.Queue()
     collectors = []
     
@@ -144,7 +151,7 @@ def create_event_stream():
             # Use fake stream for demo (replace with real API call if needed)
             fake_twitter_stream(keywords=KEYWORDS, on_event=on_twitter_event, n_events=50, delay=2.0)
         except Exception as e:
-            print(f"Twitter collector error: {e}")
+            stream_logger.error(f"Twitter collector error: {e}")
     
     def youtube_collector():
         """YouTube collector thread."""
@@ -155,7 +162,7 @@ def create_event_stream():
         try:
             start_youtube_api_collector(YOUTUBE_API_KEY, on_event=on_youtube_event)
         except Exception as e:
-            print(f"YouTube collector error: {e}")
+            stream_logger.error(f"YouTube collector error: {e}")
     
     def trends_collector():
         """Google Trends collector thread."""
@@ -167,7 +174,7 @@ def create_event_stream():
             # Use fake stream for demo
             fake_google_trends_stream(on_event=on_trends_event, n_events=20, delay=5.0)
         except Exception as e:
-            print(f"Trends collector error: {e}")
+            stream_logger.error(f"Trends collector error: {e}")
     
     # Start collector threads
     twitter_thread = threading.Thread(target=twitter_collector, name="TwitterCollector")
@@ -180,7 +187,7 @@ def create_event_stream():
     for thread in collectors:
         thread.daemon = True
         thread.start()
-        print(f"Started {thread.name}")
+        stream_logger.info(f"Started {thread.name}")
     
     # Event stream generator
     def event_generator():
@@ -193,7 +200,7 @@ def create_event_stream():
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"Event stream error: {e}")
+                stream_logger.error(f"Event stream error: {e}")
                 break
     
     return event_generator()
@@ -201,7 +208,7 @@ def create_event_stream():
 
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
-    print(f"\nReceived signal {signum}, shutting down...")
+    logger.info(f"Received signal {signum}, shutting down...")
     shutdown_event.set()
     # Also signal the runtime glue if it exists
     if runtime_glue_instance is not None:
@@ -212,7 +219,7 @@ def main(yaml_config_path: str = None):
     """Main entry point with RuntimeGlue integration."""
     global runtime_glue_instance
     
-    print("Starting unified trend prediction service...")
+    logger.info("Starting unified trend prediction service...")
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -222,7 +229,7 @@ def main(yaml_config_path: str = None):
     setup_preprocessing()
     
     # Initialize components
-    print("Initializing components...")
+    logger.info("Initializing components...")
     spam_scorer = SpamScorer()
     graph_builder = GraphBuilder(spam_scorer=spam_scorer)
     sensitivity_controller = SensitivityController()
@@ -241,24 +248,24 @@ def main(yaml_config_path: str = None):
     runtime_glue = RuntimeGlue(event_handler, config)
     runtime_glue_instance = runtime_glue  # Store for signal handler
     
-    print(f"Configuration: {config.__dict__}")
+    logger.info(f"Configuration: {config.__dict__}")
     
     try:
         # Create unified event stream
-        print("Starting data collectors...")
+        logger.info("Starting data collectors...")
         event_stream = create_event_stream()
         
         # Run the streaming service
-        print("Starting streaming service with RuntimeGlue...")
+        logger.info("Starting streaming service with RuntimeGlue...")
         runtime_glue.run_stream(event_stream)
         
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt received")
+        logger.info("Keyboard interrupt received")
     except Exception as e:
-        print(f"Service error: {e}")
+        logger.error(f"Service error: {e}")
     finally:
         # Cleanup
-        print("Performing cleanup...")
+        logger.info("Performing cleanup...")
         shutdown_event.set()
         
         # Wait for collector threads to finish
@@ -271,11 +278,11 @@ def main(yaml_config_path: str = None):
             final_checkpoint = DATA_DIR / "final_checkpoint.pt"
             import torch
             torch.save(event_handler.graph_builder.to_temporal_data(), final_checkpoint)
-            print(f"Saved final checkpoint: {final_checkpoint}")
+            logger.info(f"Saved final checkpoint: {final_checkpoint}")
         except Exception as e:
-            print(f"Error saving final checkpoint: {e}")
+            logger.error(f"Error saving final checkpoint: {e}")
         
-        print("Service shutdown complete.")
+        logger.info("Service shutdown complete.")
 
 
 if __name__ == "__main__":
