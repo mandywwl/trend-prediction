@@ -88,15 +88,16 @@ for epoch in range(3):  # TODO: 3 epochs for quick testing; increase for actual 
         dst_i = dst[i].unsqueeze(0).long()
         t_i = t[i].unsqueeze(0)
         edge_feat = edge_attr[i].unsqueeze(0)
-        label = torch.tensor([1.0])  # Dummy
+        label = torch.tensor([1.0])  # Dummy emergence label
 
         # DEBUG
         if i == 0:
             print(src_i.dtype, t_i.dtype, edge_feat.dtype)
 
         # forward / loss / optimize
-        out = model(src_i, dst_i, t_i, edge_feat)
-        loss = criterion(out.view(-1), label)
+        out = model(src_i, dst_i, t_i, edge_feat).view(-1)
+        # Train only on emergence probability for this example
+        loss = criterion(out[0:1], label)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
