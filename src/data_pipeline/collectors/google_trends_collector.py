@@ -1,19 +1,12 @@
 from datetime import datetime
 import time
-import re
 # Try to import the pytrends library
 try:
     from pytrends.request import TrendReq
 except Exception:  # ImportError or other errors
     TrendReq = None
 
-
-# Slugify a text string
-def _slugify(text: str) -> str:
-    """Normalize text to a slug usable as node ids."""
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9]+", "_", text)
-    return text.strip("_")
+from ...utils.text import slugify as _slugify
 
 
 def start_google_trends_collector(

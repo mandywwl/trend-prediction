@@ -1,11 +1,4 @@
-import re
-
-
-def _slugify(text: str) -> str:
-    """Utility: convert free text into a safe identifier."""
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9]+", "_", text)
-    return text.strip("_")
+from ...utils.text import slugify as _slugify
 
 
 def parse_event(event):
