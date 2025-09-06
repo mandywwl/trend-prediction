@@ -68,6 +68,7 @@ dependencies = [
     "scipy~=1.16",
     "setuptools>=80",
     "six~=1.17",
+    "streamlit~=1.49",
     "sympy~=1.14",
     "tokenizers~=0.21",
     "tqdm~=4.67",
