@@ -1,5 +1,5 @@
 from googleapiclient.discovery import build
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 
 
@@ -49,7 +49,7 @@ def start_youtube_api_collector(
                 tags = item["snippet"].get("tags", [])
                 hashtags = [t for t in tags if t.startswith("#")]
                 event = {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "user_id": f"yt_u_{channel_title.replace(' ', '_')}",
                     "content_id": f"yt_v_{video_id}",
                     "hashtags": hashtags,
