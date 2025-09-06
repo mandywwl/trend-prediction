@@ -20,6 +20,7 @@ from config.config import (
     WINDOW_MIN,
     METRICS_SNAPSHOT_DIR,
 )
+from utils.datetime import parse_iso_timestamp
 
 
 # ---- Data models (lightweight, tolerant of missing fields) ----
@@ -42,12 +43,7 @@ class RobustnessSnapshot:
 # ---- File readers ----
 def _parse_iso(s: str) -> Optional[datetime]:
     try:
-        # datetime.fromisoformat handles 'Z' if replaced; normalize
-        s_norm = s.replace("Z", "+00:00")
-        dt = datetime.fromisoformat(s_norm)
-        if dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+        return parse_iso_timestamp(s)
     except Exception:
         return None
 

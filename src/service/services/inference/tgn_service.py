@@ -26,6 +26,7 @@ from config.config import (
 )
 from config.schemas import Event
 from model.core.tgn import TGNModel
+from utils.datetime import timestamp_to_seconds
 from utils.io import ensure_dir
 
 
@@ -155,12 +156,7 @@ class TGNInferenceService:
     # ------------------------------------------------------------------
     def _parse_ts(self, ts_iso: str) -> float:
         try:
-            # Python can parse Z if replaced
-            from datetime import datetime
-
-            s = ts_iso.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(s)
-            return float(dt.timestamp())
+            return timestamp_to_seconds(ts_iso)
         except Exception:
             # Fallback to monotonic-ish timestamp
             return time.time()

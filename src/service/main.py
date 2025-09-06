@@ -1,7 +1,4 @@
 """Unified main entry point for streaming trend prediction service.
-
-Integrates RuntimeGlue with existing pipeline structures for a complete
-streaming service with metrics, caching, and graceful shutdown.
 """
 
 import os
@@ -88,8 +85,7 @@ class EmbeddingPreprocessor:
         *,
         text_fields: Sequence[str] | None = None,
     ) -> None:
-        """Create a new :class:`EmbeddingPreprocessor`.
-
+        """
         Args:
             embedder: Instance of :class:`RealtimeTextEmbedder` used for
                 generating embeddings.

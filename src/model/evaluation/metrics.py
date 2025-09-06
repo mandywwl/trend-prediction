@@ -26,6 +26,7 @@ from config.config import (
 )
 from config.schemas import PrecisionAtKSnapshot
 from model.inference.adaptive_thresholds import SensitivityController
+from utils.datetime import parse_iso_timestamp
 
 
 @dataclass
@@ -84,7 +85,7 @@ class EmergenceLabelBuffer:
 
         Logs the applied thresholds, counts and label with timestamp.
         """
-        now = datetime.fromisoformat(ts_iso)
+        now = parse_iso_timestamp(ts_iso)
         self._events.append((now, user_id))
         self._evict_older_than(now - timedelta(minutes=self.window_min))
 
@@ -279,13 +280,13 @@ class PrecisionAtKOnline:
         buf = self._labels.setdefault(topic_id, EmergenceLabelBuffer(
             delta_hours=self.delta_hours, window_min=self.window_min
         ))
-        ts = datetime.fromisoformat(ts_iso)
+        ts = parse_iso_timestamp(ts_iso)
         self._latest_ts = max(self._latest_ts or ts, ts)
         return buf.add_event(ts_iso=ts_iso, user_id=user_id)
 
     # ------------------------------------------------------------------
     def record_predictions(self, *, ts_iso: str, items: Iterable[Tuple[int, float]]) -> None:
-        ts = datetime.fromisoformat(ts_iso)
+        ts = parse_iso_timestamp(ts_iso)
         self._latest_ts = max(self._latest_ts or ts, ts)
         sorted_items = sorted(items, key=lambda x: (-float(x[1]), int(x[0])))
         self._pred_log.append(_TopKEntry(ts=ts, items=sorted_items))
