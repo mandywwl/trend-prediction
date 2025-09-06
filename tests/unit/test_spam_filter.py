@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from model.inference.spam_filter import SpamScorer
 from data_pipeline.storage.builder import GraphBuilder
-from service.services.preprocessing.event_handler import EventHandler
+from service.main import EventHandler
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 
 
 def _spam_user():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return {
         "created_at": (now - timedelta(days=1)).isoformat(),
         "followers": 5,
@@ -29,7 +29,7 @@ def test_spam_scorer_flags_spam_accounts():
 def test_graph_builder_downweights_spam_edges():
     scorer = SpamScorer()
     user = _spam_user()
-    ts = datetime.utcnow()
+    ts = datetime.now(timezone.utc)
     builder = GraphBuilder(reference_time=ts, spam_scorer=scorer)
     event = {
         "timestamp": ts.isoformat(),

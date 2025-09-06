@@ -9,7 +9,6 @@ Provides a single entrypoint that:
 """
 
 import json
-import signal
 import time
 import threading
 from datetime import datetime, timezone, timedelta
@@ -33,20 +32,7 @@ from config.schemas import (
     CacheItem,
 )
 from model.evaluation.metrics import PrecisionAtKOnline
-from utils.io import MetricsWriter, get_hour_bucket, ensure_dir
-
-
-def _maybe_load_yaml(path: Optional[str]) -> Dict[str, Any]:
-    """Load YAML config file with fallback to empty dict."""
-    if not path:
-        return {}
-    try:
-        import yaml  # type: ignore
-
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return {}
+from utils.io import MetricsWriter, get_hour_bucket, ensure_dir, maybe_load_yaml
 
 
 @dataclass
@@ -63,7 +49,7 @@ class RuntimeConfig:
     @classmethod
     def from_yaml(cls, yaml_path: Optional[str] = None) -> 'RuntimeConfig':
         """Create config with optional YAML overrides."""
-        yaml_config = _maybe_load_yaml(yaml_path)
+        yaml_config = maybe_load_yaml(yaml_path)
         
         # Extract runtime section if it exists
         runtime_config = yaml_config.get('runtime', {}) if isinstance(yaml_config, dict) else {}
@@ -112,14 +98,9 @@ class RuntimeGlue:
         self._shutdown_event = threading.Event()
         self._last_update = datetime.now(timezone.utc)
         self._predictions_buffer = []  # Buffer recent predictions for cache
-        
-        # Register signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
     
-    def _signal_handler(self, signum, frame):
-        """Handle graceful shutdown signals."""
-        print(f"\nReceived signal {signum}, initiating graceful shutdown...")
+    def set_shutdown(self):
+        """Set shutdown event (called externally by main orchestrator)."""
         self._shutdown_event.set()
         self._running = False
     
@@ -131,13 +112,15 @@ class RuntimeGlue:
     def _update_metrics_and_cache(self):
         """Update rolling P@K, write hourly snapshots, and update predictions cache."""
         now = datetime.now(timezone.utc)
-        
+
         # Get rolling precision scores
         precision_snapshot = self.precision_tracker.rolling_hourly_scores()
+        adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
         
         # Create hourly metrics (simplified - in real impl would include latency data)
         hourly_metrics = HourlyMetrics(
             precision_at_k=precision_snapshot,
+            adaptivity=adaptivity_score,
             latency={
                 'median_ms': 0,  # Would be populated from LatencyAggregator
                 'p95_ms': 0,
@@ -313,35 +296,3 @@ def mock_event_stream(n_events: int = 100, delay: float = 0.1) -> Generator[Even
         }
         if delay > 0:
             time.sleep(delay)
-
-
-def main(yaml_config_path: Optional[str] = None):
-    """Main entry point for the runtime glue."""
-    # Load configuration
-    config = RuntimeConfig.from_yaml(yaml_config_path)
-    
-    # Create a minimal event handler for testing
-    # In real usage, this would be properly configured with embedder, etc.
-    class MockEventHandler:
-        def on_event(self, event: Event) -> Dict[str, float]:
-            # Return mock prediction scores
-            return {
-                'topic_1': 0.8,
-                'topic_2': 0.6,
-                'topic_3': 0.4
-            }
-    
-    handler = MockEventHandler()
-    
-    # Create and run runtime glue
-    glue = RuntimeGlue(handler, config)
-    
-    # Use mock stream for demo
-    print("Starting with mock event stream...")
-    glue.run_stream(mock_event_stream(n_events=300, delay=0.1))
-
-
-if __name__ == "__main__":
-    import sys
-    yaml_path = sys.argv[1] if len(sys.argv) > 1 else None
-    main(yaml_path)

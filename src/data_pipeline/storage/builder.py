@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from data_pipeline.transformers.event_parser import parse_event
 from data_pipeline.storage.decay import apply_time_decay
-from data_pipeline.transformers.validation import validate_graph
+from utils.validation import validate_graph
 from torch_geometric.data import TemporalData
 from model.inference.spam_filter import SpamScorer
 

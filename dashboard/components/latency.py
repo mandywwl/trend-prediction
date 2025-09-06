@@ -21,11 +21,11 @@ sys.path.insert(0, str(src_path))
 
 from config.config import SLO_MED_MS, SLO_P95_MS, METRICS_SNAPSHOT_DIR
 from config.schemas import HourlyMetrics, LatencySummary, StageMs
-from dashboard.layouts.layout import (
-    render_metric_card, 
-    render_stage_table, 
+from layouts.layout import (
+    render_metric_card,
+    render_stage_table,
     render_breach_indicator,
-    apply_custom_css
+    apply_custom_css,
 )
 
 
@@ -342,5 +342,5 @@ def render_panel(
         "latest_median_ms": latest_latency['median_ms'],
         "latest_p95_ms": latest_latency['p95_ms'],
         "median_slo_met": not median_breach,
-        "p95_slo_met": not p95_breach
+        "p95_slo_met": not p95_breach,
     }

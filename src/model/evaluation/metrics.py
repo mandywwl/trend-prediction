@@ -11,7 +11,7 @@ label freeze and a rolling hourly snapshot window.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Deque, Dict, Iterator, Optional, Tuple, Iterable, List
 from collections import deque
 import json
@@ -26,6 +26,7 @@ from config.config import (
 )
 from config.schemas import PrecisionAtKSnapshot
 from model.inference.adaptive_thresholds import SensitivityController
+from utils.datetime import parse_iso_timestamp
 
 
 @dataclass
@@ -84,7 +85,7 @@ class EmergenceLabelBuffer:
 
         Logs the applied thresholds, counts and label with timestamp.
         """
-        now = datetime.fromisoformat(ts_iso)
+        now = parse_iso_timestamp(ts_iso)
         self._events.append((now, user_id))
         self._evict_older_than(now - timedelta(minutes=self.window_min))
 
@@ -254,6 +255,8 @@ class PrecisionAtKOnline:
         window_min: Optional[int] = None,
         k_default: Optional[int] = None,
         k_options: Optional[Iterable[int]] = None,
+        regime_shift_threshold: float = 0.5,
+        adaptivity_target: float = 0.1,
     ) -> None:
         self.delta_hours: int = int(DELTA_HOURS if delta_hours is None else delta_hours)
         self.window_min: int = int(WINDOW_MIN if window_min is None else window_min)
@@ -264,25 +267,33 @@ class PrecisionAtKOnline:
         self._pred_log: Deque[_TopKEntry] = deque()
         self._latest_ts: Optional[datetime] = None
 
+        # Adaptivity tracking
+        self._mape_log: Deque[Tuple[datetime, float]] = deque()
+        self._adaptivity_log: Deque[Tuple[datetime, float]] = deque()
+        self._shift_start: Optional[datetime] = None
+        self._shift_mape: Optional[float] = None
+        self.regime_shift_threshold = float(regime_shift_threshold)
+        self.adaptivity_target = float(adaptivity_target)
+
     # ------------------------------------------------------------------
     def record_event(self, *, topic_id: int, user_id: str, ts_iso: str) -> int:
         buf = self._labels.setdefault(topic_id, EmergenceLabelBuffer(
             delta_hours=self.delta_hours, window_min=self.window_min
         ))
-        ts = datetime.fromisoformat(ts_iso)
+        ts = parse_iso_timestamp(ts_iso)
         self._latest_ts = max(self._latest_ts or ts, ts)
         return buf.add_event(ts_iso=ts_iso, user_id=user_id)
 
     # ------------------------------------------------------------------
     def record_predictions(self, *, ts_iso: str, items: Iterable[Tuple[int, float]]) -> None:
-        ts = datetime.fromisoformat(ts_iso)
+        ts = parse_iso_timestamp(ts_iso)
         self._latest_ts = max(self._latest_ts or ts, ts)
         sorted_items = sorted(items, key=lambda x: (-float(x[1]), int(x[0])))
         self._pred_log.append(_TopKEntry(ts=ts, items=sorted_items))
 
     # ------------------------------------------------------------------
     def rolling_hourly_scores(self) -> PrecisionAtKSnapshot:
-        now = self._latest_ts or datetime.utcnow()
+        now = self._latest_ts or datetime.now(timezone.utc)
         window_start = now - timedelta(minutes=self.window_min)
         matured: List[_TopKEntry] = []
         for entry in self._pred_log:
@@ -298,6 +309,7 @@ class PrecisionAtKOnline:
         for entry in matured:
             k5_sum += self._precision_for_entry(entry, k=5)
             k10_sum += self._precision_for_entry(entry, k=10)
+            self._update_adaptivity(entry)
 
         n = len(matured)
         return {"k5": k5_sum / n, "k10": k10_sum / n, "support": n}
@@ -317,6 +329,45 @@ class PrecisionAtKOnline:
         return tp / float(k)
 
     # ------------------------------------------------------------------
+    def _update_adaptivity(self, entry: _TopKEntry) -> None:
+        """Update adaptivity tracking based on matured prediction entry."""
+        mat_time = entry.matured_at(self.delta_hours)
+        for tid, score in entry.items:
+            buf = self._labels.get(tid)
+            actual = (
+                1.0
+                if buf and buf.emergent_within(t=entry.ts, delta_hours=self.delta_hours)
+                else 0.0
+            )
+            mape = abs(actual - float(score)) / max(1.0, abs(actual))
+            self._mape_log.append((mat_time, mape))
+
+            if self._shift_start is None and mape >= self.regime_shift_threshold:
+                self._shift_start = mat_time
+                self._shift_mape = mape
+            elif self._shift_start is not None and self._shift_mape is not None:
+                decay = max(0.0, (self._shift_mape - mape) / max(self._shift_mape, 1e-6))
+                self._adaptivity_log.append((mat_time, decay))
+                if mape <= self.adaptivity_target:
+                    self._shift_start = None
+                    self._shift_mape = None
+
+        # Evict old records
+        cutoff = mat_time - timedelta(minutes=self.window_min)
+        while self._mape_log and self._mape_log[0][0] < cutoff:
+            self._mape_log.popleft()
+        while self._adaptivity_log and self._adaptivity_log[0][0] < cutoff:
+            self._adaptivity_log.popleft()
+
+    # ------------------------------------------------------------------
+    def rolling_adaptivity_score(self) -> float:
+        """Return average adaptivity score over the rolling window."""
+        if not self._adaptivity_log:
+            return 0.0
+        total = sum(score for _ts, score in self._adaptivity_log)
+        return total / len(self._adaptivity_log)
+
+    # ------------------------------------------------------------------
     def append_snapshot_jsonl(self, *, filename: str = "precision_at_k.jsonl") -> str | None:
         """Compute snapshot and append a JSONL record for dashboards.
 
@@ -331,8 +382,11 @@ class PrecisionAtKOnline:
             The full path written to on success; None on best-effort failure.
         """
         record = {
-            "ts": (self._latest_ts or datetime.utcnow()).isoformat(timespec="seconds"),
+            "ts": (self._latest_ts or datetime.now(timezone.utc)).isoformat(
+                timespec="seconds"
+            ),
             "precision_at_k": self.rolling_hourly_scores(),
+            "adaptivity": self.rolling_adaptivity_score(),
         }
         try:
             os.makedirs(METRICS_SNAPSHOT_DIR, exist_ok=True)

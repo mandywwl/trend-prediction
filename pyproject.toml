@@ -43,6 +43,7 @@ dependencies = [
     "networkx~=3.5",
     "numpy~=2.3",
     "oauthlib~=3.3",
+    "optuna~=3.6",
     "packaging~=25.0",
     "pillow~=11.2",
     "playwright~=1.53",
@@ -67,6 +68,7 @@ dependencies = [
     "scipy~=1.16",
     "setuptools>=80",
     "six~=1.17",
+    "streamlit~=1.49",
     "sympy~=1.14",
     "tokenizers~=0.21",
     "tqdm~=4.67",
@@ -91,19 +93,17 @@ packages = [
     "model",
     "model.core",
     "model.training",
-    "model.inference", 
+    "model.inference",
+    "model.baselines",
     "model.evaluation",
     "service",
     "service.api",
     "service.services",
     "service.services.inference",
-    "service.services.preprocessing",
-    "service.services.data_collection",
-    "service.services.monitoring",
-    "service.workers",
     "utils"
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+

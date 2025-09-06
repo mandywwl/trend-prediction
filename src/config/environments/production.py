@@ -1,6 +1,6 @@
 """Production environment configuration."""
 
-from .base import *
+from ..base import *
 
 # Production settings
 DEBUG = False

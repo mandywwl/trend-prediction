@@ -15,6 +15,8 @@ sys.path.insert(0, str(src_path))
 # Add current directory to path for local imports
 dashboard_path = Path(__file__).parent
 sys.path.insert(0, str(dashboard_path))
+# Add repository root to path so `dashboard.*` imports work
+sys.path.insert(0, str(dashboard_path.parent))
 
 from components import topk
 

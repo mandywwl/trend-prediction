@@ -14,7 +14,7 @@ from data_pipeline.storage.builder import GraphBuilder
 from model.inference.spam_filter import SpamScorer
 from model.inference.adaptive_thresholds import SensitivityController
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
-from service.services.preprocessing.event_handler import EventHandler
+from service.main import EventHandler
 from utils.io import ensure_dir
 
 
