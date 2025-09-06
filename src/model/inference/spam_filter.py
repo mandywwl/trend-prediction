@@ -3,8 +3,10 @@
 import math
 import numpy as np
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Mapping, Sequence
+
+from utils.datetime import parse_iso_timestamp
 
 from config.config import EDGE_WEIGHT_MIN, SPAM_WINDOW_MIN
 
@@ -49,14 +51,14 @@ class SpamScorer:
         gracefully when data is sparse.
         """
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         scores: list[float] = []
 
         # -------------- Account age -------------------
         created = user.get("created_at")
         age_days = 0.0
         if isinstance(created, str):
-            created_dt = datetime.fromisoformat(created)
+            created_dt = parse_iso_timestamp(created)
             age_days = (now - created_dt).total_seconds() / 86400.0
         scores.append(min(1.0, age_days / self.config.min_account_age_days))
 
@@ -70,7 +72,7 @@ class SpamScorer:
         posts = list(user.get("posts", []))
         if len(posts) > 1:
             times = sorted(
-                datetime.fromisoformat(p["timestamp"]).timestamp()
+                parse_iso_timestamp(p["timestamp"]).timestamp()
                 for p in posts
                 if "timestamp" in p
             )
