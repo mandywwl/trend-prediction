@@ -1,6 +1,8 @@
 import math
 
-import torch
+import pytest
+
+torch = pytest.importorskip("torch")
 
 from config.config import HUBER_DELTA_DEFAULT
 from model.core.losses import huber_loss, HuberLoss
