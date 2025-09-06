@@ -1,152 +1,295 @@
-"""Main entry point for the serving layer."""
+"""Unified main entry point for streaming trend prediction service.
 
+Integrates RuntimeGlue with existing pipeline structures for a complete
+streaming service with metrics, caching, and graceful shutdown.
+"""
+
+import os
+import sys
+import threading
+import signal
+from pathlib import Path
+from typing import Dict, Any
+
+# Ensure we can import from src
+project_root = Path(__file__).resolve().parents[2]
+src_path = project_root / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+# Pipeline imports
 from data_pipeline.collectors.twitter_collector import fake_twitter_stream
 from data_pipeline.collectors.youtube_collector import start_youtube_api_collector
-from data_pipeline.collectors.google_trends_collector import start_google_trends_collector
+from data_pipeline.collectors.google_trends_collector import start_google_trends_collector, fake_google_trends_stream
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 from data_pipeline.storage.builder import GraphBuilder
 from model.inference.spam_filter import SpamScorer
 from model.inference.adaptive_thresholds import SensitivityController
 from service.services.preprocessing.event_handler import EventHandler
+from service.runtime_glue import RuntimeGlue, RuntimeConfig
 from utils.io import ensure_dir
-from pathlib import Path
-import json
-import os
-import threading
-import torch
+from config.schemas import Event
 
 try:
     from data_pipeline.processors.preprocessing import build_tgn
 except Exception:
     build_tgn = None
 
+# Configuration
+DATA_DIR = ensure_dir(project_root / "datasets")
 
-# Directory to save data
-DATA_DIR = ensure_dir(Path(__file__).resolve().parents[2] / "datasets")
+# API Keys (TODO: Move to environment variables)
+TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" 
+YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"
+KEYWORDS = ["#trending", "fyp", "viral"]
 
-# --- Credentials and configuration ---
-# TODO (for production): Shift to environment variables or secure vaults
-TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token"  # XXX: Replace with your actual Twitter/X Bearer Token (Paid versions only as of 2025)
-YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"  # XXX: Replace with your actual YouTube API Key # TODO: Remove before submission
-KEYWORDS = [
-    "#trending",
-    "fyp",
-    "viral",
-]  # XXX: Adjust keywords as needed; Applies to Twitter/X stream
-
-# Initialise components
-spam_scorer = SpamScorer()
-graph = GraphBuilder(spam_scorer=spam_scorer)
-sensitivity = SensitivityController()
-embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
-
-# Wire runtime handler (preprocess + adaptive back-pressure)
-event_counter = 0
+# Global state for graceful shutdown
+shutdown_event = threading.Event()
+collectors_running = []
+runtime_glue_instance = None
 
 
-def _infer_into_graph(event):
-    """Minimal inference hook: push event into graph builder.
-
-    This can later be swapped for a TGN inference call. Keeping a separate
-    function allows EventHandler to remain decoupled from data_pipeline internals.
-    """
-    graph.process_event(event)
-
-
-handler = EventHandler(
-    embedder,
-    _infer_into_graph,
-    spam_scorer=spam_scorer,
-    sensitivity=sensitivity,
-)
-
-
-# ---- Utility functions ----
-def save_graph(graph_obj, filename):
-    path = DATA_DIR / filename
-    torch.save(graph_obj, path)
-    print(f"Graph saved to {path}")
-
-
-def save_event(event, filename="events.jsonl"):
-    path = DATA_DIR / filename
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(event) + "\n")
-
-
-def load_graph(filename):
-    path = DATA_DIR / filename
-    return torch.load(path)
-
-
-# ---- Event handler ----
-def handle_event(event):
-    """Route incoming event through adaptive handler and persist artifacts."""
-    global event_counter
-    handler.handle(event)
-    event_counter += 1
-
-    # Save raw event (append-only) for dashboards and reproducibility
-    # TODO (for production): Consider using database or more structured storage
-    save_event(event)
-    save_event(event)
-
-    # Save a lightweight checkpoint periodically (TemporalData)
-    if event_counter % 100 == 0:
-        save_graph(graph.to_temporal_data(), f"checkpoint_{event_counter}.pt")
-    # TODO (for production): Add optional stats/error handling, hook controller metrics to dashboards
-
-
-# ---- Run collectors ----
-def run_twitter():
-    # start_twitter_stream(TWITTER_BEARER_TOKEN, KEYWORDS, handle_event) # XXX: Uncomment to use Twitter API
-    fake_twitter_stream(
-        keywords=KEYWORDS, on_event=handle_event
-    )  # XXX: Simulate Twitter stream for testing (Comment out if using Twitter API)
+class IntegratedEventHandler:
+    """Enhanced event handler that integrates with RuntimeGlue metrics."""
+    
+    def __init__(self, embedder, graph_builder, spam_scorer, sensitivity_controller):
+        self.embedder = embedder
+        self.graph_builder = graph_builder
+        self.spam_scorer = spam_scorer
+        self.sensitivity_controller = sensitivity_controller
+        
+        # Create the underlying EventHandler
+        def _infer_into_graph(event):
+            self.graph_builder.process_event(event)
+        
+        self.event_handler = EventHandler(
+            embedder=embedder,
+            infer_fn=_infer_into_graph,
+            spam_scorer=spam_scorer,
+            sensitivity=sensitivity_controller,
+        )
+        
+        # Event counter for checkpoints
+        self.event_counter = 0
+    
+    def on_event(self, event: Event) -> Dict[str, float]:
+        """Process event and return prediction scores for RuntimeGlue."""
+        try:
+            # Process through existing handler
+            self.event_handler.handle(event)
+            self.event_counter += 1
+            
+            # Save periodic checkpoints
+            if self.event_counter % 100 == 0:
+                self._save_checkpoint()
+            
+            # Generate mock prediction scores for now
+            # TODO: Replace with actual TGN inference when available
+            scores = {
+                f"topic_{i}": 0.8 - (i * 0.1) 
+                for i in range(5)
+            }
+            
+            return scores
+            
+        except Exception as e:
+            print(f"Error processing event: {e}")
+            return {}
+    
+    def _save_checkpoint(self):
+        """Save graph checkpoint."""
+        try:
+            checkpoint_path = DATA_DIR / f"checkpoint_{self.event_counter}.pt"
+            import torch
+            torch.save(self.graph_builder.to_temporal_data(), checkpoint_path)
+            print(f"Saved checkpoint: {checkpoint_path}")
+        except Exception as e:
+            print(f"Error saving checkpoint: {e}")
 
 
-def run_youtube():
-    start_youtube_api_collector(
-        YOUTUBE_API_KEY, on_event=handle_event
-    )  # NOTE: Default categories are set in the collector
-
-
-def run_googletrends():
-    start_google_trends_collector(on_event=handle_event)
-
-
-# ---- Start collectors in separate threads ----
-if __name__ == "__main__":
-    # Ensure preprocessing output exists (auto-run if missing). Set PREPROCESS_FORCE=1 to force rebuild.
+def setup_preprocessing():
+    """Setup preprocessing if needed."""
     tgn_file = DATA_DIR / "tgn_edges_basic.npz"
+    
+    if not build_tgn:
+        print("[setup] build_tgn not available; skipping preprocessing.")
+        return
+    
     try:
-        if build_tgn:
-            if (not tgn_file.exists()) or os.environ.get("PREPROCESS_FORCE") == "1":
-                print("[main] Running preprocessing (build_tgn)...")
-                build_tgn()
-            else:
-                print(
-                    "[main] TGN file exists, skipping preprocessing. Set PREPROCESS_FORCE=1 to force."
-                )
+        force_rebuild = os.environ.get("PREPROCESS_FORCE") == "1"
+        if not tgn_file.exists() or force_rebuild:
+            print("[setup] Running preprocessing (build_tgn)...")
+            build_tgn()
         else:
-            print("[main] build_tgn not available; skipping preprocessing.")
+            print("[setup] TGN file exists, skipping preprocessing.")
     except Exception as e:
-        print(f"[main] Preprocessing failed but continuing: {e}")
+        print(f"[setup] Preprocessing failed: {e}")
 
-    # Create threads for each collector
-    t1 = threading.Thread(target=run_twitter)
-    t2 = threading.Thread(target=run_youtube)
-    t3 = threading.Thread(target=run_googletrends)
 
-    t1.start()
-    t2.start()
-    t3.start()
+def create_event_stream():
+    """Create a unified event stream from all collectors."""
+    import queue
+    import time
+    
+    event_queue = queue.Queue()
+    collectors = []
+    
+    def twitter_collector():
+        """Twitter collector thread."""
+        def on_twitter_event(event):
+            if not shutdown_event.is_set():
+                event_queue.put(event)
+        
+        try:
+            # Use fake stream for demo (replace with real API call if needed)
+            fake_twitter_stream(keywords=KEYWORDS, on_event=on_twitter_event, n_events=50, delay=2.0)
+        except Exception as e:
+            print(f"Twitter collector error: {e}")
+    
+    def youtube_collector():
+        """YouTube collector thread."""
+        def on_youtube_event(event):
+            if not shutdown_event.is_set():
+                event_queue.put(event)
+        
+        try:
+            start_youtube_api_collector(YOUTUBE_API_KEY, on_event=on_youtube_event)
+        except Exception as e:
+            print(f"YouTube collector error: {e}")
+    
+    def trends_collector():
+        """Google Trends collector thread."""
+        def on_trends_event(event):
+            if not shutdown_event.is_set():
+                event_queue.put(event)
+        
+        try:
+            # Use fake stream for demo
+            fake_google_trends_stream(on_event=on_trends_event, n_events=20, delay=5.0)
+        except Exception as e:
+            print(f"Trends collector error: {e}")
+    
+    # Start collector threads
+    twitter_thread = threading.Thread(target=twitter_collector, name="TwitterCollector")
+    youtube_thread = threading.Thread(target=youtube_collector, name="YouTubeCollector")
+    trends_thread = threading.Thread(target=trends_collector, name="TrendsCollector")
+    
+    collectors.extend([twitter_thread, youtube_thread, trends_thread])
+    collectors_running.extend(collectors)
+    
+    for thread in collectors:
+        thread.daemon = True
+        thread.start()
+        print(f"Started {thread.name}")
+    
+    # Event stream generator
+    def event_generator():
+        while not shutdown_event.is_set():
+            try:
+                # Get event with timeout to allow checking shutdown
+                event = event_queue.get(timeout=1.0)
+                yield event
+                event_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Event stream error: {e}")
+                break
+    
+    return event_generator()
 
-    # Wait for both to finish
-    t1.join()
-    t2.join()
-    t3.join()
 
-    # FOR TESTING: SAVE the graph for manual inspection
-    save_graph(graph.to_temporal_data(), "test_graph.pt")
-    print("Graph saved at end of script.")
+def signal_handler(signum, frame):
+    """Handle shutdown signals."""
+    print(f"\nReceived signal {signum}, shutting down...")
+    shutdown_event.set()
+    # Also signal the runtime glue if it exists
+    if runtime_glue_instance is not None:
+        runtime_glue_instance.set_shutdown()
+
+
+def main(yaml_config_path: str = None):
+    """Main entry point with RuntimeGlue integration."""
+    global runtime_glue_instance
+    
+    print("Starting unified trend prediction service...")
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Setup preprocessing
+    setup_preprocessing()
+    
+    # Initialize components
+    print("Initializing components...")
+    spam_scorer = SpamScorer()
+    graph_builder = GraphBuilder(spam_scorer=spam_scorer)
+    sensitivity_controller = SensitivityController()
+    embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
+    
+    # Create integrated event handler
+    event_handler = IntegratedEventHandler(
+        embedder=embedder,
+        graph_builder=graph_builder,
+        spam_scorer=spam_scorer,
+        sensitivity_controller=sensitivity_controller
+    )
+    
+    # Configure RuntimeGlue
+    config = RuntimeConfig.from_yaml(yaml_config_path)
+    runtime_glue = RuntimeGlue(event_handler, config)
+    runtime_glue_instance = runtime_glue  # Store for signal handler
+    
+    print(f"Configuration: {config.__dict__}")
+    
+    try:
+        # Create unified event stream
+        print("Starting data collectors...")
+        event_stream = create_event_stream()
+        
+        # Run the streaming service
+        print("Starting streaming service with RuntimeGlue...")
+        runtime_glue.run_stream(event_stream)
+        
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt received")
+    except Exception as e:
+        print(f"Service error: {e}")
+    finally:
+        # Cleanup
+        print("Performing cleanup...")
+        shutdown_event.set()
+        
+        # Wait for collector threads to finish
+        for thread in collectors_running:
+            if thread.is_alive():
+                thread.join(timeout=2.0)
+        
+        # Final checkpoint
+        try:
+            final_checkpoint = DATA_DIR / "final_checkpoint.pt"
+            import torch
+            torch.save(event_handler.graph_builder.to_temporal_data(), final_checkpoint)
+            print(f"Saved final checkpoint: {final_checkpoint}")
+        except Exception as e:
+            print(f"Error saving final checkpoint: {e}")
+        
+        print("Service shutdown complete.")
+
+
+if __name__ == "__main__":
+    import sys
+    
+    # Activate virtual environment message
+    print("Please ensure your virtual environment is activated:")
+    print("Windows: .venv\\Scripts\\activate")
+    print("Linux/Mac: source .venv/bin/activate")
+    print()
+    
+    # Get optional YAML config path
+    yaml_path = sys.argv[1] if len(sys.argv) > 1 else None
+    if yaml_path:
+        print(f"Using config file: {yaml_path}")
+    
+    main(yaml_path)

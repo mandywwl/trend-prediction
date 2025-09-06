@@ -9,7 +9,6 @@ Provides a single entrypoint that:
 """
 
 import json
-import signal
 import time
 import threading
 from datetime import datetime, timezone, timedelta
@@ -112,14 +111,9 @@ class RuntimeGlue:
         self._shutdown_event = threading.Event()
         self._last_update = datetime.now(timezone.utc)
         self._predictions_buffer = []  # Buffer recent predictions for cache
-        
-        # Register signal handlers
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
     
-    def _signal_handler(self, signum, frame):
-        """Handle graceful shutdown signals."""
-        print(f"\nReceived signal {signum}, initiating graceful shutdown...")
+    def set_shutdown(self):
+        """Set shutdown event (called externally by main orchestrator)."""
         self._shutdown_event.set()
         self._running = False
     
@@ -313,35 +307,3 @@ def mock_event_stream(n_events: int = 100, delay: float = 0.1) -> Generator[Even
         }
         if delay > 0:
             time.sleep(delay)
-
-
-def main(yaml_config_path: Optional[str] = None):
-    """Main entry point for the runtime glue."""
-    # Load configuration
-    config = RuntimeConfig.from_yaml(yaml_config_path)
-    
-    # Create a minimal event handler for testing
-    # In real usage, this would be properly configured with embedder, etc.
-    class MockEventHandler:
-        def on_event(self, event: Event) -> Dict[str, float]:
-            # Return mock prediction scores
-            return {
-                'topic_1': 0.8,
-                'topic_2': 0.6,
-                'topic_3': 0.4
-            }
-    
-    handler = MockEventHandler()
-    
-    # Create and run runtime glue
-    glue = RuntimeGlue(handler, config)
-    
-    # Use mock stream for demo
-    print("Starting with mock event stream...")
-    glue.run_stream(mock_event_stream(n_events=300, delay=0.1))
-
-
-if __name__ == "__main__":
-    import sys
-    yaml_path = sys.argv[1] if len(sys.argv) > 1 else None
-    main(yaml_path)
