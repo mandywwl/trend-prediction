@@ -2,7 +2,8 @@
 
 Wraps a trained Temporal Graph Network (TGN) for online inference in an
 event-driven pipeline. Each event updates the temporal memory and triggers a
-forward pass that yields per-topic trend emergence scores in [0, 1].
+forward pass that yields three trend metrics: emergence probability, growth
+rate, and diffusion score.
 
 Key features:
 - LRU-based soft memory limiting via MAX_NODES.
@@ -254,7 +255,7 @@ class TGNInferenceService:
 
     # ------------------------------------------------------------------
     def update_and_score(self, event: Event) -> Dict[str, float]:
-        """Update the TGN with the event and return per-topic scores.
+        """Update the TGN with the event and return trend metrics.
 
         The service processes only the first target in ``target_ids`` for the
         forward pass to preserve latency; additional targets can be handled by
@@ -265,8 +266,8 @@ class TGNInferenceService:
                 target_ids, edge_type, features}.
 
         Returns:
-            Mapping of topic identifier to score in [0, 1]. Currently a
-            single-topic output is provided under key "topic:0".
+            Mapping with three entries: ``emergence_probability`` in [0, 1],
+            raw ``growth_rate`` (unbounded), and ``diffusion_score`` in [0, 1].
         """
         actor_id = str(event.get("actor_id", "0"))
         targets = event.get("target_ids") or []
@@ -299,12 +300,19 @@ class TGNInferenceService:
         # Forward pass
         fwd_start = time.perf_counter()
         logits = self.model(src_tensor, dst_tensor, t_tensor, e_attr)
-        probs = torch.sigmoid(logits).view(-1)
+        logits = logits.view(-1)
         forward_ms = (time.perf_counter() - fwd_start) * 1000.0
 
         # Log latencies (append-only, non-blocking)
         self._log_latencies(update_ms, forward_ms)
 
-        # Produce per-topic score dictionary (single topic for now)
-        score = float(probs[0].clamp(0.0, 1.0).item())
-        return {"topic:0": score}
+        # Split decoder outputs into named metrics
+        emergence = torch.sigmoid(logits[0]).clamp(0.0, 1.0).item()
+        growth = logits[1].item()
+        diffusion = torch.sigmoid(logits[2]).clamp(0.0, 1.0).item()
+
+        return {
+            "emergence_probability": float(emergence),
+            "growth_rate": float(growth),
+            "diffusion_score": float(diffusion),
+        }

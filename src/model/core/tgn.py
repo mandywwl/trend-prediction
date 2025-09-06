@@ -25,8 +25,14 @@ class TGNModel(nn.Module):
             aggregator_module=self.aggregator_module,
         )
 
+        # Decoder now produces three values per edge interaction:
+        #   1. emergence probability
+        #   2. growth rate
+        #   3. diffusion score
         self.decoder = nn.Sequential(
-            nn.Linear(memory_dim * 2 + time_dim, 100), nn.ReLU(), nn.Linear(100, 1)
+            nn.Linear(memory_dim * 2 + time_dim, 100),
+            nn.ReLU(),
+            nn.Linear(100, 3),
         )
 
     def forward(self, src, dst, t, edge_attr):

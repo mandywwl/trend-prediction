@@ -43,6 +43,7 @@ dependencies = [
     "networkx~=3.5",
     "numpy~=2.3",
     "oauthlib~=3.3",
+    "optuna~=3.6",
     "packaging~=25.0",
     "pillow~=11.2",
     "playwright~=1.53",
@@ -91,7 +92,8 @@ packages = [
     "model",
     "model.core",
     "model.training",
-    "model.inference", 
+    "model.inference",
+    "model.baselines",
     "model.evaluation",
     "service",
     "service.api",
@@ -107,3 +109,4 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
