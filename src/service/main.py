@@ -6,6 +6,7 @@ import sys
 import threading
 import signal
 import time
+import json
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 
@@ -69,6 +70,32 @@ KEYWORDS = ["#trending", "fyp", "viral"]
 shutdown_event = threading.Event()
 collectors_running = []
 runtime_glue_instance = None
+
+# Event logging setup
+EVENT_LOG = DATA_DIR / "events.jsonl"
+_event_log_lock = threading.Lock()
+_event_log_fh = open(EVENT_LOG, "a", encoding="utf-8")
+_MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _rotate_event_log() -> None:
+    """Rotate the event log when it grows too large."""
+    global _event_log_fh
+    rotated = EVENT_LOG.with_name(f"events_{int(time.time())}.jsonl")
+    _event_log_fh.close()
+    os.rename(EVENT_LOG, rotated)
+    _event_log_fh = open(EVENT_LOG, "a", encoding="utf-8")
+
+
+def log_event(event: Event) -> None:
+    """Append ``event`` to the JSONL event log in a thread-safe manner."""
+    global _event_log_fh
+    with _event_log_lock:
+        json.dump(event, _event_log_fh)
+        _event_log_fh.write("\n")
+        _event_log_fh.flush()
+        if _event_log_fh.tell() >= _MAX_LOG_BYTES:
+            _rotate_event_log()
 
 
 class EmbeddingPreprocessor:
@@ -322,6 +349,7 @@ def create_event_stream():
         """Twitter collector thread."""
         def on_twitter_event(event):
             if not shutdown_event.is_set():
+                log_event(event)
                 event_queue.put(event)
         
         try:
@@ -334,6 +362,7 @@ def create_event_stream():
         """YouTube collector thread."""
         def on_youtube_event(event):
             if not shutdown_event.is_set():
+                log_event(event)
                 event_queue.put(event)
         
         try:
@@ -345,6 +374,7 @@ def create_event_stream():
         """Google Trends collector thread."""
         def on_trends_event(event):
             if not shutdown_event.is_set():
+                log_event(event)
                 event_queue.put(event)
         
         try:
@@ -458,7 +488,13 @@ def main(yaml_config_path: str = None):
             logger.info(f"Saved final checkpoint: {final_checkpoint}")
         except Exception as e:
             logger.error(f"Error saving final checkpoint: {e}")
-        
+
+        # Close event log file
+        try:
+            _event_log_fh.close()
+        except Exception:
+            pass
+
         logger.info("Service shutdown complete.")
 
 
