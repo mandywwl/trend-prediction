@@ -32,20 +32,7 @@ from config.schemas import (
     CacheItem,
 )
 from model.evaluation.metrics import PrecisionAtKOnline
-from utils.io import MetricsWriter, get_hour_bucket, ensure_dir
-
-
-def _maybe_load_yaml(path: Optional[str]) -> Dict[str, Any]:
-    """Load YAML config file with fallback to empty dict."""
-    if not path:
-        return {}
-    try:
-        import yaml  # type: ignore
-
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return {}
+from utils.io import MetricsWriter, get_hour_bucket, ensure_dir, maybe_load_yaml
 
 
 @dataclass
@@ -62,7 +49,7 @@ class RuntimeConfig:
     @classmethod
     def from_yaml(cls, yaml_path: Optional[str] = None) -> 'RuntimeConfig':
         """Create config with optional YAML overrides."""
-        yaml_config = _maybe_load_yaml(yaml_path)
+        yaml_config = maybe_load_yaml(yaml_path)
         
         # Extract runtime section if it exists
         runtime_config = yaml_config.get('runtime', {}) if isinstance(yaml_config, dict) else {}

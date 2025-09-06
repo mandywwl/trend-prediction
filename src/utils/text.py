@@ -1,5 +1,6 @@
-import re
+"""Convert free text into a safe identifier."""
 
+import re
 
 def slugify(text: str) -> str:
     """Convert text to safe identifier."""

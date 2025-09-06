@@ -5,28 +5,17 @@ via YAML (if provided). Also logs Huber vs MSE loss curves for ablations.
 """
 
 import os
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import torch
 
 from config.config import HUBER_DELTA_DEFAULT
 from model.core.losses import HuberLoss, log_huber_vs_mse_curve
-
-
-def _maybe_load_yaml(path: Optional[str]) -> Dict[str, Any]:
-    if not path:
-        return {}
-    try:
-        import yaml  # type: ignore
-
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception:
-        return {}
+from utils.io import maybe_load_yaml
 
 
 def train_growth(yaml_path: Optional[str] = None) -> None:
-    cfg = _maybe_load_yaml(yaml_path)
+    cfg = maybe_load_yaml(yaml_path)
     huber_cfg = cfg.get("huber", {}) if isinstance(cfg, dict) else {}
     delta = huber_cfg.get("delta", None)
 
