@@ -1,4 +1,4 @@
-from ...utils.text import slugify as _slugify
+from utils.text import slugify as _slugify
 
 
 def parse_event(event):

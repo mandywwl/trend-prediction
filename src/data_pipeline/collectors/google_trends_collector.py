@@ -6,7 +6,7 @@ try:
 except Exception:  # ImportError or other errors
     TrendReq = None
 
-from ...utils.text import slugify as _slugify
+from utils.text import slugify as _slugify
 
 
 def start_google_trends_collector(
