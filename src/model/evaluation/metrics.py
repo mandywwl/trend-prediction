@@ -11,7 +11,7 @@ label freeze and a rolling hourly snapshot window.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Deque, Dict, Iterator, Optional, Tuple, Iterable, List
 from collections import deque
 import json
@@ -293,7 +293,7 @@ class PrecisionAtKOnline:
 
     # ------------------------------------------------------------------
     def rolling_hourly_scores(self) -> PrecisionAtKSnapshot:
-        now = self._latest_ts or datetime.utcnow()
+        now = self._latest_ts or datetime.now(timezone.utc)
         window_start = now - timedelta(minutes=self.window_min)
         matured: List[_TopKEntry] = []
         for entry in self._pred_log:
@@ -382,7 +382,9 @@ class PrecisionAtKOnline:
             The full path written to on success; None on best-effort failure.
         """
         record = {
-            "ts": (self._latest_ts or datetime.utcnow()).isoformat(timespec="seconds"),
+            "ts": (self._latest_ts or datetime.now(timezone.utc)).isoformat(
+                timespec="seconds"
+            ),
             "precision_at_k": self.rolling_hourly_scores(),
             "adaptivity": self.rolling_adaptivity_score(),
         }

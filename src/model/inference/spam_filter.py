@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Mapping, Sequence
 
+from utils.datetime import parse_iso_timestamp
+
 from config.config import EDGE_WEIGHT_MIN, SPAM_WINDOW_MIN
 from utils.datetime import parse_iso_timestamp
 
@@ -71,7 +73,7 @@ class SpamScorer:
         posts = list(user.get("posts", []))
         if len(posts) > 1:
             times = sorted(
-                datetime.fromisoformat(p["timestamp"]).timestamp()
+                parse_iso_timestamp(p["timestamp"]).timestamp()
                 for p in posts
                 if "timestamp" in p
             )

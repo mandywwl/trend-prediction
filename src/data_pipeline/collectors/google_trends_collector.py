@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 # Try to import the pytrends library
 try:
@@ -58,7 +58,7 @@ def start_google_trends_collector(
                         if title:
                             contexts.append(title)
                 event = {
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "content_id": f"trend_{_slugify(term)}",
                     "source": "google_trends",
                     "type": "trend",
@@ -80,7 +80,7 @@ def fake_google_trends_stream(on_event=None, n_events: int = 5, delay: float = 1
     for i in range(n_events):
         term = f"Example Trend {i}"
         event = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "content_id": f"trend_{_slugify(term)}",
             "source": "google_trends",
             "type": "trend",

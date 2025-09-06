@@ -1,7 +1,7 @@
 """Adaptive sensitivity and back-pressure controller."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Deque, Dict, Iterable, Optional
 from collections import deque
@@ -252,7 +252,7 @@ class SensitivityController:
         return target + (value - target) * (1.0 - alpha)
 
     def _maybe_apply_back_pressure(self) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         p95 = self._p95_ms()
 
         if p95 > self.slos.p95_ms:
@@ -311,7 +311,7 @@ class SensitivityController:
 
     def _log(self, *, action: str, payload: Dict[str, object]) -> None:
         record = {
-            "ts": datetime.utcnow().isoformat(timespec="milliseconds"),
+            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "action": action,
             **payload,
         }
