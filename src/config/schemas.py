@@ -42,6 +42,7 @@ class PrecisionAtKSnapshot(TypedDict):
 
 class HourlyMetrics(TypedDict):
     precision_at_k: PrecisionAtKSnapshot
+    adaptivity: float
     latency: LatencySummary
     meta: Dict[str, str]  # {"generated_at": ISO8601}
 

@@ -92,6 +92,7 @@ class TrendPredictionService:
         
         hourly_metrics = HourlyMetrics(
             precision_at_k=precision_snapshot,
+            adaptivity=0.0,
             latency=latency_summary,
             meta={"service": "trend_prediction"}
         )
