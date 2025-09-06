@@ -1,0 +1,91 @@
+# Enhanced Data Pipeline Configuration
+
+# Database Configuration
+database:
+  # Use SQLite by default (will be created in datasets/trend_prediction.db)
+  # For production, use PostgreSQL: "postgresql://user:password@localhost/trend_prediction"
+  url: null  # Will default to SQLite
+
+# Scheduler Configuration
+scheduler:
+  timezone: "UTC"
+  max_workers: 4
+  
+  # Collection schedule (hourly)
+  collection:
+    enabled: true
+    interval_minutes: 60  # Every hour
+    
+  # Training schedule (weekly on Sunday at 2 AM)
+  training:
+    enabled: true
+    day_of_week: 0  # Sunday
+    hour: 2
+    minute: 0
+    
+  # Prediction generation (every 30 minutes)
+  predictions:
+    enabled: true
+    interval_minutes: 30
+
+# Data Collection Configuration
+collection:
+  # Twitter/X configuration
+  twitter:
+    enabled: true
+    use_fake: true  # Set to false to use real API
+    keywords: ["#trending", "fyp", "viral", "#GenZ"]
+    events_per_hour: 50
+    
+  # YouTube configuration  
+  youtube:
+    enabled: true
+    use_fake: false  # Will check for API key
+    max_results: 20
+    categories: ["10", "17", "20", "24", "25", "28"]  # Music, Sports, Gaming, Entertainment, News, Science
+    
+  # Google Trends configuration
+  google_trends:
+    enabled: true
+    use_fake: true  # Set to false to use real API
+    region: "US"
+    category: "all"
+    count: 30
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins: ["http://localhost:3000", "http://localhost:8501"]  # For dashboard
+  
+# Model Configuration
+model:
+  # Text embedding settings
+  embedding:
+    model_name: "distilbert-base-uncased"
+    batch_size: 8
+    max_latency_ms: 50
+    device: "cpu"
+    
+  # Training settings
+  training:
+    data_window_days: 7  # Use last 7 days of data for training
+    min_events: 100  # Minimum events needed for training
+    epochs: 10
+    
+  # Prediction settings
+  prediction:
+    confidence_threshold: 0.5
+    max_predictions: 10
+
+# Monitoring Configuration
+monitoring:
+  health_check_interval: 60  # seconds
+  log_level: "INFO"
+  metrics_retention_days: 30
+
+# Dashboard Configuration
+dashboard:
+  refresh_interval: 30  # seconds
+  max_trends_display: 10
+  prediction_history_hours: 24
