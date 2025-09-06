@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from model.inference.spam_filter import SpamScorer
 from data_pipeline.storage.builder import GraphBuilder
-from service.services.preprocessing.event_handler import EventHandler
+from service.main import EventHandler
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 
 

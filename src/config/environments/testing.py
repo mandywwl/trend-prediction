@@ -1,6 +1,6 @@
 """Testing environment configuration."""
 
-from .base import *
+from ..base import *
 
 # Test settings
 DEBUG = True

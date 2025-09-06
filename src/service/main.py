@@ -8,11 +8,23 @@ import os
 import sys
 import threading
 import signal
+import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
+
+import numpy as np
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Load .env file from project root
+    project_root = Path(__file__).resolve().parents[2]
+    load_dotenv(project_root / ".env")
+except ImportError:
+    print("Warning: python-dotenv not installed. Please install it with: pip install python-dotenv")
+    project_root = Path(__file__).resolve().parents[2]
 
 # Ensure we can import from src
-project_root = Path(__file__).resolve().parents[2]
 src_path = project_root / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
@@ -25,11 +37,11 @@ from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 from data_pipeline.storage.builder import GraphBuilder
 from model.inference.spam_filter import SpamScorer
 from model.inference.adaptive_thresholds import SensitivityController
-from service.services.preprocessing.event_handler import EventHandler
 from service.runtime_glue import RuntimeGlue, RuntimeConfig
 from utils.io import ensure_dir
 from utils.logging import get_logger, service_logger, setup_logging
-from config.schemas import Event
+from config.schemas import Event, Features
+from config.config import EMBED_PREPROC_BUDGET_MS
 
 # Setup logging
 setup_logging()
@@ -43,9 +55,17 @@ except Exception:
 # Configuration
 DATA_DIR = ensure_dir(project_root / "datasets")
 
-# API Keys (TODO: Move to environment variables)
-TWITTER_BEARER_TOKEN = "Your_Twitter_Bearer_Token" 
-YOUTUBE_API_KEY = "AIzaSyBCiebLZPuGWg0plQJQ0PP6WbZsv0etacs"
+# API Keys from environment variables
+TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
+# Validate required environment variables
+if not YOUTUBE_API_KEY:
+    logger.warning("YOUTUBE_API_KEY not set - YouTube collector may not work")
+if not TWITTER_BEARER_TOKEN:
+    logger.warning("TWITTER_BEARER_TOKEN not set - Twitter collector may not work")
+
+# Keywords for Twitter stream
 KEYWORDS = ["#trending", "fyp", "viral"]
 
 # Global state for graceful shutdown
@@ -54,26 +74,175 @@ collectors_running = []
 runtime_glue_instance = None
 
 
-class IntegratedEventHandler:
-    """Enhanced event handler that integrates with RuntimeGlue metrics."""
-    
-    def __init__(self, embedder, graph_builder, spam_scorer, sensitivity_controller):
+class EmbeddingPreprocessor:
+    """Attach text embeddings to incoming events.
+
+    The preprocessor looks for known text fields, encodes the first one found
+    using :class:`RealtimeTextEmbedder` and stores the resulting vector under
+    ``event["features"]["text_emb"]``.
+    """
+
+    def __init__(
+        self,
+        embedder: RealtimeTextEmbedder,
+        *,
+        text_fields: Sequence[str] | None = None,
+    ) -> None:
+        """Create a new :class:`EmbeddingPreprocessor`.
+
+        Args:
+            embedder: Instance of :class:`RealtimeTextEmbedder` used for
+                generating embeddings.
+            text_fields: Optional list of event keys to inspect for text. The
+                first present key is used. Defaults to common fields such as
+                ``"text"``, ``"tweet_text"`` and ``"caption"``.
+        """
         self.embedder = embedder
-        self.graph_builder = graph_builder
+        self.text_fields = (
+            list(text_fields)
+            if text_fields is not None
+            else [
+                "text",
+                "tweet_text",
+                "caption",
+                "description",
+            ]
+        )
+
+        self._zero_emb: np.ndarray | None = None
+
+    def _extract_text(self, event: Event) -> str | None:
+        for field in self.text_fields:
+            value = event.get(field)
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
+
+    def __call__(self, event: Event, *, light: bool = False) -> Event:
+        """Process ``event`` in-place and return it.
+
+        If no text field is found a zero embedding is attached to satisfy the
+        downstream schema.
+        """
+        t0 = time.perf_counter()
+        text = self._extract_text(event)
+        if text is None or light:
+            if self._zero_emb is None:
+                dim = self.embedder.model.config.hidden_size
+                self._zero_emb = np.zeros(dim, dtype=np.float32)
+            emb = self._zero_emb
+        else:
+            emb = self.embedder.encode([text])[0]
+
+        features: Features = event.setdefault("features", {})
+        features["text_emb"] = emb
+
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        if duration_ms > EMBED_PREPROC_BUDGET_MS:
+            print(
+                f"[EmbeddingPreprocessor] budget exceeded: {duration_ms:.1f}ms > {EMBED_PREPROC_BUDGET_MS}ms"
+            )
+        return event
+
+
+class EventHandler:
+    """Handle events by preprocessing then invoking TGN inference."""
+
+    def __init__(
+        self,
+        embedder: RealtimeTextEmbedder,
+        infer: Callable[[Dict[str, Any]], Any],
+        *,
+        spam_scorer: SpamScorer | None = None,
+        sensitivity: "SensitivityController | None" = None,
+        service: Any | None = None,
+    ) -> None:
+        """Initialise the handler.
+
+        Args:
+            embedder: Text embedder used by the ``EmbeddingPreprocessor``.
+            infer: Callable representing the TGN inference service. It receives
+                the processed event.
+            spam_scorer: Optional :class:`SpamScorer` used to down-weight
+                edges for suspected spammy accounts.
+        """
+        self.preprocessor = EmbeddingPreprocessor(embedder)
+        self._infer = infer
         self.spam_scorer = spam_scorer
-        self.sensitivity_controller = sensitivity_controller
-        self.logger = get_logger(f"{__name__}.IntegratedEventHandler")
-        
-        # Create the underlying EventHandler
+        self.sensitivity = sensitivity
+        self._service = service  # Optional TGN-like scoring service
+
+    def handle(self, event: Event) -> Any:
+        """Preprocess ``event`` and forward it to inference.
+
+        If a sensitivity controller is provided and currently applying
+        back-pressure, heavy operations such as embeddings are skipped by
+        attaching a zero-vector. The handler also records observed latency
+        into the controller for adaptive behaviour.
+        """
+
+        policy = None
+        if self.sensitivity is not None:
+            policy = self.sensitivity.policy()
+        light = bool(policy and not policy.heavy_ops_enabled)
+
+        t0 = time.perf_counter()
+        processed = self.preprocessor(event, light=light)
+
+        if self.spam_scorer is not None:
+            weight = self.spam_scorer.edge_weight(processed)
+            processed.setdefault("features", {})["edge_weight"] = weight
+
+        result = self._infer(processed)
+
+        # Record latency and (optional) ground-truth spam label for adaptation
+        if self.sensitivity is not None:
+            latency_ms = (time.perf_counter() - t0) * 1000.0
+            is_spam = bool(processed.get("is_spam", False))
+            try:
+                self.sensitivity.record_event(is_spam=is_spam, latency_ms=latency_ms)
+            except Exception:
+                pass  # never let adaptation interfere with the hot path
+
+            # Expose suggested sampler size for downstream components
+            pol = self.sensitivity.policy()
+            processed.setdefault("features", {})["sampler_size"] = pol.sampler_size
+
+        return result
+
+    def on_event(self, event: Event) -> Dict[str, float]:
+        """Thin path: call scoring service once per event.
+
+        Keeps the handler stateless across runs; temporal state (if any)
+        belongs to the injected service.
+        """
+        if self._service is None:
+            # Fallback: run existing pipeline without scores
+            self.handle(event)
+            return {}
+        return self._service.update_and_score(event)
+
+
+class IntegratedEventHandler(EventHandler):
+    """Event handler integrating preprocessing, spam scoring, and TGN graph building.
+    
+    Extends EventHandler with graph building and checkpoint functionality.
+    """
+    def __init__(self, embedder, graph_builder, spam_scorer, sensitivity_controller):
+        # Create the inference function for the parent EventHandler
         def _infer_into_graph(event):
-            self.graph_builder.process_event(event)
+            graph_builder.process_event(event)
         
-        self.event_handler = EventHandler(
+        # Initialize parent EventHandler
+        super().__init__(
             embedder=embedder,
-            infer_fn=_infer_into_graph,
+            infer=_infer_into_graph,
             spam_scorer=spam_scorer,
             sensitivity=sensitivity_controller,
         )
+        
+        self.graph_builder = graph_builder
+        self.logger = get_logger(f"{__name__}.IntegratedEventHandler")
         
         # Event counter for checkpoints
         self.event_counter = 0
@@ -81,8 +250,8 @@ class IntegratedEventHandler:
     def on_event(self, event: Event) -> Dict[str, float]:
         """Process event and return prediction scores for RuntimeGlue."""
         try:
-            # Process through existing handler
-            self.event_handler.handle(event)
+            # Process through parent handler
+            super().handle(event)
             self.event_counter += 1
             
             # Save periodic checkpoints
@@ -111,6 +280,18 @@ class IntegratedEventHandler:
             self.logger.info(f"Saved checkpoint: {checkpoint_path}")
         except Exception as e:
             self.logger.error(f"Error saving checkpoint: {e}")
+
+
+def run_stream(
+    reader: Iterable[Event],
+    handler: EventHandler,
+) -> Generator[Tuple[Event, Dict[str, float]], None, None]:
+    """Yield (event, scores) pairs from a synchronous reader.
+
+    Calls the handler's ``on_event`` exactly once per input event.
+    """
+    for event in reader:
+        yield event, handler.on_event(event)
 
 
 def setup_preprocessing():

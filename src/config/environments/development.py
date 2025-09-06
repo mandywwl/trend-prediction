@@ -1,6 +1,6 @@
 """Development environment configuration."""
 
-from .base import *
+from ..base import *
 
 # Override for development
 DEBUG = True

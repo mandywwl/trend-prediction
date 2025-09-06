@@ -152,13 +152,25 @@ The system supports both live and simulated data collection:
 - **Live Mode**: Uses real APIs (requires valid API keys)
 - **Demo Mode**: Uses simulated data streams (default for development)
 
-To use live data, update the API keys in the configuration:
+### Setting Up API Keys
 
-```python
-# In service/main.py or via environment variables
-TWITTER_BEARER_TOKEN = "your_actual_token"
-YOUTUBE_API_KEY = "your_actual_key"
-```
+1. **Copy the environment template:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit the `.env` file** and add your actual API keys:
+   ```bash
+   # Twitter/X API Bearer Token (get from: https://developer.twitter.com/en/portal/dashboard)
+   TWITTER_BEARER_TOKEN=your_actual_twitter_bearer_token_here
+   
+   # YouTube Data API Key (get from: https://console.developers.google.com/)
+   YOUTUBE_API_KEY=your_actual_youtube_api_key_here
+   ```
+
+3. **The application will automatically load** the environment variables from the `.env` file.
+
+**Note:** The `.env` file is already excluded from version control via `.gitignore` to keep your API keys secure.
 
 ## 📊 Dashboard Usage
 
