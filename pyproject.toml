@@ -99,10 +99,6 @@ packages = [
     "service.api",
     "service.services",
     "service.services.inference",
-    "service.services.preprocessing",
-    "service.services.data_collection",
-    "service.services.monitoring",
-    "service.workers",
     "utils"
 ]
 
