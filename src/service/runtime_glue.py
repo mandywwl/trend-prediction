@@ -125,13 +125,15 @@ class RuntimeGlue:
     def _update_metrics_and_cache(self):
         """Update rolling P@K, write hourly snapshots, and update predictions cache."""
         now = datetime.now(timezone.utc)
-        
+
         # Get rolling precision scores
         precision_snapshot = self.precision_tracker.rolling_hourly_scores()
+        adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
         
         # Create hourly metrics (simplified - in real impl would include latency data)
         hourly_metrics = HourlyMetrics(
             precision_at_k=precision_snapshot,
+            adaptivity=adaptivity_score,
             latency={
                 'median_ms': 0,  # Would be populated from LatencyAggregator
                 'p95_ms': 0,

@@ -113,6 +113,7 @@ def test_metrics_writer():
     # Create test metrics payload
     test_metrics = HourlyMetrics(
         precision_at_k=PrecisionAtKSnapshot(k5=0.85, k10=0.75, support=100),
+        adaptivity=0.0,
         latency={
             'median_ms': 800,
             'p95_ms': 1200,
@@ -207,6 +208,7 @@ def test_end_to_end():
     
     hourly_metrics = HourlyMetrics(
         precision_at_k=PrecisionAtKSnapshot(k5=0.9, k10=0.8, support=50),
+        adaptivity=0.0,
         latency=latency_summary,
         meta={"source": "end_to_end_test"}
     )

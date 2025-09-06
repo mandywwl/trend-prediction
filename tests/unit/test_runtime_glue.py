@@ -163,8 +163,9 @@ def test_runtime_glue_updates_metrics():
         # Verify metrics file content
         with open(metrics_files[0], 'r') as f:
             metrics_data = json.load(f)
-        
+
         assert 'precision_at_k' in metrics_data
+        assert 'adaptivity' in metrics_data
         assert 'latency' in metrics_data
         assert 'meta' in metrics_data
         assert metrics_data['meta']['service'] == 'runtime_glue'
