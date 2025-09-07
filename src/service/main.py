@@ -74,6 +74,8 @@ runtime_glue_instance = None
 # Event logging setup
 EVENT_LOG = DATA_DIR / "events.jsonl"
 _event_log_lock = threading.Lock()
+# Ensure the parent directory exists before opening the file
+EVENT_LOG.parent.mkdir(parents=True, exist_ok=True)
 _event_log_fh = open(EVENT_LOG, "a", encoding="utf-8")
 _MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -96,6 +98,35 @@ def log_event(event: Event) -> None:
         _event_log_fh.flush()
         if _event_log_fh.tell() >= _MAX_LOG_BYTES:
             _rotate_event_log()
+
+
+# Database storage
+DATABASE_PATH = DATA_DIR / "events.db"
+try:
+    from data_pipeline.storage.database import EventDatabase
+    event_database = EventDatabase(DATABASE_PATH)
+    logger.info(f"Event database initialized at {DATABASE_PATH}")
+except Exception as e:
+    logger.warning(f"Failed to initialize database: {e}")
+    event_database = None
+
+
+def store_event_in_database(event: Event) -> None:
+    """Store event in database if available."""
+    if event_database:
+        try:
+            event_database.store_event(event)
+        except Exception as e:
+            logger.error(f"Failed to store event in database: {e}")
+
+
+def enhanced_log_event(event: Event) -> None:
+    """Enhanced event logging that stores in both JSONL and database."""
+    # Store in JSONL (for backwards compatibility)
+    log_event(event)
+    
+    # Store in database (for new features)
+    store_event_in_database(event)
 
 
 class EmbeddingPreprocessor:
@@ -281,6 +312,10 @@ class IntegratedEventHandler(EventHandler):
             if self.event_counter % 100 == 0:
                 self._save_checkpoint()
             
+            # Run periodic preprocessing (every 1000 events to avoid overhead)
+            if self.event_counter % 1000 == 0:
+                periodic_preprocessing()
+            
             # Generate mock prediction scores for now
             # TODO: Replace with actual TGN inference when available
             scores = {
@@ -320,9 +355,16 @@ def run_stream(
 def setup_preprocessing():
     """Setup preprocessing if needed."""
     tgn_file = DATA_DIR / "tgn_edges_basic.npz"
+    events_file = EVENT_LOG
     
     if not build_tgn:
         logger.info("build_tgn not available; skipping preprocessing")
+        return
+    
+    # Check if events.jsonl exists before attempting preprocessing
+    if not events_file.exists():
+        logger.info("events.jsonl does not exist yet; skipping preprocessing for now")
+        logger.info("Preprocessing will be available after collectors generate some data")
         return
     
     try:
@@ -334,6 +376,35 @@ def setup_preprocessing():
             logger.info("TGN file exists, skipping preprocessing")
     except Exception as e:
         logger.error(f"Preprocessing failed: {e}")
+        logger.info("Continuing without preprocessing - collectors will still run")
+
+
+def periodic_preprocessing():
+    """Attempt preprocessing periodically after events have been collected."""
+    events_file = EVENT_LOG
+    tgn_file = DATA_DIR / "tgn_edges_basic.npz"
+    
+    if not build_tgn:
+        return
+    
+    # Only attempt if events file exists and has some content
+    if events_file.exists() and events_file.stat().st_size > 0:
+        try:
+            # Check if we should rebuild (weekly or if file doesn't exist)
+            should_rebuild = not tgn_file.exists()
+            if tgn_file.exists():
+                # Rebuild weekly (604800 seconds = 1 week)
+                file_age = time.time() - tgn_file.stat().st_mtime
+                should_rebuild = file_age > 604800
+            
+            if should_rebuild:
+                logger.info("Running periodic preprocessing (build_tgn)...")
+                build_tgn()
+                logger.info("Periodic preprocessing completed successfully")
+        except Exception as e:
+            logger.error(f"Periodic preprocessing failed: {e}")
+    else:
+        logger.debug("No events data available yet for preprocessing")
 
 
 def create_event_stream():
@@ -349,7 +420,7 @@ def create_event_stream():
         """Twitter collector thread."""
         def on_twitter_event(event):
             if not shutdown_event.is_set():
-                log_event(event)
+                enhanced_log_event(event)
                 event_queue.put(event)
         
         try:
@@ -362,7 +433,7 @@ def create_event_stream():
         """YouTube collector thread."""
         def on_youtube_event(event):
             if not shutdown_event.is_set():
-                log_event(event)
+                enhanced_log_event(event)
                 event_queue.put(event)
         
         try:
@@ -374,7 +445,7 @@ def create_event_stream():
         """Google Trends collector thread."""
         def on_trends_event(event):
             if not shutdown_event.is_set():
-                log_event(event)
+                enhanced_log_event(event)
                 event_queue.put(event)
         
         try:
@@ -435,6 +506,34 @@ def main(yaml_config_path: str = None):
     # Setup preprocessing
     setup_preprocessing()
     
+    # Initialize training scheduler and hourly collector
+    logger.info("Initializing training scheduler and hourly collector...")
+    training_scheduler = None
+    hourly_collector = None
+    
+    if event_database:
+        try:
+            from service.training_scheduler import TrainingScheduler, HourlyDataCollector
+            
+            # Initialize training scheduler (weekly retraining)
+            training_scheduler = TrainingScheduler(
+                database=event_database,
+                datasets_dir=DATA_DIR,
+                training_interval_hours=168,  # 1 week
+                min_events_for_training=100
+            )
+            
+            # Initialize hourly data collector
+            hourly_collector = HourlyDataCollector(database=event_database)
+            
+            # Start background services
+            training_scheduler.start()
+            hourly_collector.start()
+            
+            logger.info("Training scheduler and hourly collector started")
+        except Exception as e:
+            logger.error(f"Failed to initialize training components: {e}")
+    
     # Initialize components
     logger.info("Initializing components...")
     spam_scorer = SpamScorer()
@@ -457,6 +556,10 @@ def main(yaml_config_path: str = None):
     
     logger.info(f"Configuration: {config.__dict__}")
     
+    # Variables for cleanup
+    training_scheduler_ref = training_scheduler
+    hourly_collector_ref = hourly_collector
+    
     try:
         # Create unified event stream
         logger.info("Starting data collectors...")
@@ -474,6 +577,12 @@ def main(yaml_config_path: str = None):
         # Cleanup
         logger.info("Performing cleanup...")
         shutdown_event.set()
+        
+        # Stop training scheduler and hourly collector
+        if training_scheduler_ref:
+            training_scheduler_ref.stop()
+        if hourly_collector_ref:
+            hourly_collector_ref.stop()
         
         # Wait for collector threads to finish
         for thread in collectors_running:
