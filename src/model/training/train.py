@@ -1,4 +1,3 @@
-import os
 import logging
 from datetime import datetime
 import numpy as np
@@ -9,6 +8,7 @@ from model.core.tgn import TGNModel
 from model.training.noise_injection import inject_noise
 from config.schemas import Batch
 from config.config import LABEL_SMOOTH_EPS
+from utils.path_utils import find_repo_root
 
 logging.basicConfig(level=logging.INFO)
 
@@ -56,8 +56,8 @@ def smoothed_cross_entropy(
 
 if __name__ == "__main__":
     # Example training loop demonstrating usage of smoothed cross-entropy.
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    data_dir = os.path.join(project_root, "datasets/tgn_edges_basic.npz")
+    repo_root = find_repo_root()
+    data_dir = repo_root / "datasets" / "tgn_edges_basic.npz"
     data = np.load(data_dir, allow_pickle=True)
 
     src_arr = data["src"]

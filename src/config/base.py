@@ -1,10 +1,11 @@
 """Base configuration settings."""
 
-import os
 from pathlib import Path
 
+from utils.path_utils import find_repo_root
+
 # Base directory configuration
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = find_repo_root()
 DATA_DIR = PROJECT_ROOT / "datasets"
 LOGS_DIR = PROJECT_ROOT / "logs"
 

@@ -6,7 +6,9 @@ from threading import RLock
 from typing import Deque, Dict, Iterable, Optional
 from collections import deque
 import json
-import os
+from pathlib import Path
+
+from utils.path_utils import find_repo_root
 
 from config.config import (
     SPAM_RATE_SPIKE,
@@ -51,7 +53,7 @@ class SensitivityConfig:
     raise_factor: float = THRESH_RAISE_FACTOR
     max_multiplier_of_baseline: float = 2.0
     decay_alpha: float = THRESH_DECAY_RATE
-    log_path: str = os.path.join("datasets", "adaptive_thresholds.log")
+    log_path: Path = find_repo_root() / "datasets" / "adaptive_thresholds.log"
     window_minutes: int = SPAM_WINDOW_MIN
 
 
@@ -102,6 +104,7 @@ class SensitivityController:
         max_sampler_size: int = 64,
     ) -> None:
         self.cfg = config or SensitivityConfig()
+        self.cfg.log_path = Path(self.cfg.log_path)
         self.slos = slos or SLOs()
 
         # Sliding windows
@@ -123,7 +126,7 @@ class SensitivityController:
         self._cooldown_until: Optional[datetime] = None
 
         # Logging
-        os.makedirs(os.path.dirname(self.cfg.log_path), exist_ok=True)
+        self.cfg.log_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._lock = RLock()
 
@@ -321,3 +324,4 @@ class SensitivityController:
         except Exception:
             # Best-effort logging; never raise from controller
             pass
+

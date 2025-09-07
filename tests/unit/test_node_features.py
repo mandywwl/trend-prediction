@@ -1,11 +1,12 @@
 import numpy as np
 import pytest
-from pathlib import Path
+
+from utils.path_utils import find_repo_root
 
 
 def test_node_features():
     """Test the node features in NPZ file coercible and finite."""
-    path = Path(__file__).parents[1] / "datasets" / "tgn_edges_basic.npz"
+    path = find_repo_root() / "datasets" / "tgn_edges_basic.npz"
     if not path.exists():
         pytest.skip(f"Missing test data: {path}")
 
@@ -31,3 +32,4 @@ def test_node_features():
 
         if arr.size:
             assert np.isfinite(arr).all(), f"Non-finite values at index {i}"
+

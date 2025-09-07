@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Generator, Iterable, Tuple
 
@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover - keep import-time errors lazily
     optuna = None  # type: ignore
 
 from model.core.tgn import TGNModel
+from utils.path_utils import find_repo_root
 
 
 logger = logging.getLogger(__name__)
@@ -38,9 +39,9 @@ def _load_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.nda
     deterministic synthetic one when the expected ``.npz`` file is absent.
     """
 
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    data_path = os.path.join(project_root, "datasets", "tgn_edges_basic.npz")
-    if os.path.exists(data_path):
+    repo_root = find_repo_root()
+    data_path = repo_root / "datasets" / "tgn_edges_basic.npz"
+    if data_path.exists():
         data = np.load(data_path, allow_pickle=True)
         return (
             data["src"],
@@ -174,8 +175,8 @@ def tune_hyperparameters(n_trials: int = 20) -> Any:
     study.optimize(objective, n_trials=n_trials)
     logger.info("Best params: %s", study.best_params)
 
-    log_path = os.path.join(os.path.dirname(__file__), "tuning_log.json")
-    with open(log_path, "w", encoding="utf-8") as f:
+    log_path = Path(__file__).resolve().parent / "tuning_log.json"
+    with log_path.open("w", encoding="utf-8") as f:
         json.dump({"best_params": study.best_params, "best_value": study.best_value}, f, indent=2)
 
     return study

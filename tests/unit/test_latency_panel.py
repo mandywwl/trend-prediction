@@ -6,9 +6,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import sys
 
+from utils.path_utils import find_repo_root
+
 # Add paths for imports
-dashboard_path = Path(__file__).parent.parent.parent / "dashboard"
-src_path = Path(__file__).parent.parent.parent / "src"
+repo_root = find_repo_root()
+dashboard_path = repo_root / "dashboard"
+src_path = repo_root / "src"
 sys.path.insert(0, str(dashboard_path))
 sys.path.insert(0, str(src_path))
 
@@ -235,9 +238,10 @@ if __name__ == "__main__":
     test_load_hourly_metrics_nonexistent_dir()
     
     print("All latency panel tests passed!")
-    
+
     # Create sample data for manual testing
     print("\nCreating sample test data...")
     test_dir = create_test_metrics_data()
     print(f"Test data created in: {test_dir}")
     print(f"You can test the dashboard with: METRICS_SNAPSHOT_DIR={test_dir}")
+

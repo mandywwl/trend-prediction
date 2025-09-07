@@ -12,6 +12,7 @@ import torch
 from config.config import HUBER_DELTA_DEFAULT
 from model.core.losses import HuberLoss, log_huber_vs_mse_curve
 from utils.io import maybe_load_yaml
+from utils.path_utils import find_repo_root
 
 
 def train_growth(yaml_path: Optional[str] = None) -> None:
@@ -47,7 +48,7 @@ def train_growth(yaml_path: Optional[str] = None) -> None:
         optim.step()
 
     # Log Huber vs MSE curve for ablations
-    out_path = os.path.join("datasets", "huber_vs_mse.csv")
+    out_path = find_repo_root() / "datasets" / "huber_vs_mse.csv"
     log_huber_vs_mse_curve(
         path=out_path, delta=delta if delta is not None else HUBER_DELTA_DEFAULT
     )

@@ -15,7 +15,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Deque, Dict, Iterator, Optional, Tuple, Iterable, List
 from collections import deque
 import json
-import os
+from pathlib import Path
+
+from utils.path_utils import find_repo_root
 
 from config.config import (
     DELTA_HOURS,
@@ -65,7 +67,7 @@ class EmergenceLabelBuffer:
         unique_users_base: int = 50,
         delta_hours: Optional[int] = None,
         window_min: Optional[int] = None,
-        log_path: str = os.path.join("datasets", "emergence_labels.log"),
+        log_path: Path | str | None = None,
     ) -> None:
         # Default controller at baseline so thresholds match spec when not provided
         self.sensitivity = sensitivity or SensitivityController()
@@ -73,11 +75,14 @@ class EmergenceLabelBuffer:
         self.unique_users_base = int(unique_users_base)
         self.delta_hours = int(DELTA_HOURS if delta_hours is None else delta_hours)
         self.window_min = int(WINDOW_MIN if window_min is None else window_min)
-        self.log_path = log_path
+        repo_root = find_repo_root()
+        self.log_path = (
+            Path(log_path) if log_path is not None else repo_root / "datasets" / "emergence_labels.log"
+        )
 
         self._events: Deque[Tuple[datetime, str]] = deque()
         self._emergence_times: Deque[datetime] = deque()
-        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     def add_event(self, *, ts_iso: str, user_id: str) -> int:
@@ -389,11 +394,13 @@ class PrecisionAtKOnline:
             "adaptivity": self.rolling_adaptivity_score(),
         }
         try:
-            os.makedirs(METRICS_SNAPSHOT_DIR, exist_ok=True)
-            path = os.path.join(METRICS_SNAPSHOT_DIR, filename)
-            with open(path, "a", encoding="utf-8") as f:
+            snapshot_dir = find_repo_root() / METRICS_SNAPSHOT_DIR
+            snapshot_dir.mkdir(parents=True, exist_ok=True)
+            path = snapshot_dir / filename
+            with path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
-            return path
+            return str(path)
         except Exception:
             # Never block the pipeline on IO errors
             return None
+

@@ -1,22 +1,34 @@
 import json
 import numpy as np
 import torch
-import os
+from pathlib import Path
 
 from datetime import datetime
 from transformers import DistilBertTokenizer, DistilBertModel
 
+from utils.path_utils import find_repo_root
 
-def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
-    """
-    Build TGN edge file from events.jsonl
-    """
-    if events_path is None:
-        events_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets", "events.jsonl")
-    if output_path is None:
-        output_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets", "tgn_edges_basic.npz")
 
-    if os.path.exists(output_path) and not force:
+def build_tgn(
+    events_path: Path | str | None = None,
+    output_path: Path | str | None = None,
+    force: bool = False,
+    max_text_len: int = 32,
+) -> Path:
+    """Build TGN edge file from events.jsonl."""
+    repo_root = find_repo_root()
+    events_path = (
+        Path(events_path)
+        if events_path is not None
+        else repo_root / "datasets" / "events.jsonl"
+    )
+    output_path = (
+        Path(output_path)
+        if output_path is not None
+        else repo_root / "datasets" / "tgn_edges_basic.npz"
+    )
+
+    if output_path.exists() and not force:
         print(
             f"[preprocess] {output_path} already exists — skipping (use force=True to rebuild)."
         )
@@ -26,38 +38,38 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     model = DistilBertModel.from_pretrained("distilbert-base-uncased")
 
-    node2id = {}
-    node_features = {}
+    node2id: dict[str, int] = {}
+    node_features: dict[int, np.ndarray] = {}
     src_nodes, dst_nodes, timestamps, edge_features = [], [], [], []
 
     # --- Utility functions for TGN preprocessing ---
-    def get_node_id(node):
+    def get_node_id(node: str) -> int:
         """Get unique node ID for a given node"""
         if node not in node2id:
             node2id[node] = len(node2id)
         return node2id[node]
 
-    def to_timestamp(ts):
+    def to_timestamp(ts: str) -> float:
         """Convert ISO8601 timestamp to float (seconds since epoch)"""
-        # Use the utils datetime function for consistent timezone handling
         from utils.datetime import parse_iso_timestamp
+
         dt = parse_iso_timestamp(ts)
         return dt.timestamp()
 
-    def embed_text(text):
+    def embed_text(text: str) -> np.ndarray:
         """Embed text using DistilBERT and return the mean pooling of the output."""
         inputs = tokenizer(
             text, return_tensors="pt", truncation=True, max_length=max_text_len
         )
         with torch.no_grad():
             outputs = model(**inputs)
-        emb = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()  # mean pooling
+        emb = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
         return emb
 
-    if not os.path.exists(events_path):
+    if not events_path.exists():
         raise FileNotFoundError(f"Events file not found: {events_path}")
 
-    with open(events_path, encoding="utf-8") as f:
+    with events_path.open(encoding="utf-8") as f:
         for line in f:
             event = json.loads(line)
             user = get_node_id(event["user_id"])
@@ -70,7 +82,6 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
             feature = [
                 int(platform == "twitter"),
                 int(platform == "youtube"),
-                # TODO (for production): Add more platforms
                 int(e_type == "original"),
                 int(e_type == "retweet"),
                 int(e_type == "upload"),
@@ -106,7 +117,7 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
         if i in node_features:
             features_list.append(node_features[i])
         else:
-            features_list.append(np.zeros(feature_dim))  # Safety: all nodes covered
+            features_list.append(np.zeros(feature_dim))
     features_array = np.stack(features_list)
 
     # Save to .npz for easy loading in PyTorch
@@ -127,4 +138,5 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
 
 
 if __name__ == "__main__":
-    build_tgn() # Allow running the script directly
+    build_tgn()  # Allow running the script directly
+
