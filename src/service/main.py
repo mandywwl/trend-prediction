@@ -28,7 +28,7 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 # Pipeline imports
-from data_pipeline.collectors.twitter_collector import fake_twitter_stream
+from data_pipeline.collectors.twitter_collector import fake_twitter_stream, start_twitter_stream
 from data_pipeline.collectors.youtube_collector import start_youtube_api_collector
 from data_pipeline.collectors.google_trends_collector import start_google_trends_collector, fake_google_trends_stream
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
@@ -417,17 +417,37 @@ def create_event_stream():
     collectors = []
     
     def twitter_collector():
-        """Twitter collector thread."""
+        """Twitter collector thread.
+        Tries real Twitter stream first; falls back to fake stream if credentials
+        missing or an error occurs.
+        """
         def on_twitter_event(event):
             if not shutdown_event.is_set():
                 enhanced_log_event(event)
                 event_queue.put(event)
-        
+
+        # Prefer real stream when we have a bearer token
+        if TWITTER_BEARER_TOKEN:
+            try:
+                start_twitter_stream(
+                    bearer_token=TWITTER_BEARER_TOKEN,
+                    keywords=KEYWORDS,
+                    on_event=on_twitter_event,
+                )
+                return
+            except Exception as e:
+                stream_logger.error(f"Real Twitter stream failed, falling back to fake: {e}")
+
+        # Fallback: simulated events (finite)
         try:
-            # Use fake stream for demo (replace with real API call if needed)
-            fake_twitter_stream(keywords=KEYWORDS, on_event=on_twitter_event, n_events=50, delay=2.0)
+            fake_twitter_stream(
+                keywords=KEYWORDS,
+                on_event=on_twitter_event,
+                n_events=50,
+                delay=2.0,
+            )
         except Exception as e:
-            stream_logger.error(f"Twitter collector error: {e}")
+            stream_logger.error(f"Twitter collector (fake fallback) error: {e}")
     
     def youtube_collector():
         """YouTube collector thread."""
@@ -442,17 +462,33 @@ def create_event_stream():
             stream_logger.error(f"YouTube collector error: {e}")
     
     def trends_collector():
-        """Google Trends collector thread."""
+        """Google Trends collector thread.
+        Attempts real pytrends polling; falls back to synthetic if pytrends
+        unavailable or an error occurs.
+        """
         def on_trends_event(event):
             if not shutdown_event.is_set():
                 enhanced_log_event(event)
                 event_queue.put(event)
-        
+
         try:
-            # Use fake stream for demo
+            # Real collector (blocks with internal loop)
+            start_google_trends_collector(
+                on_event=on_trends_event,
+                region="US",
+                category="all",
+                count=20,
+                interval=3600,
+            )
+            return
+        except Exception as e:
+            stream_logger.error(f"Real Google Trends collector failed, falling back to fake: {e}")
+
+        # Fallback: finite synthetic events
+        try:
             fake_google_trends_stream(on_event=on_trends_event, n_events=20, delay=5.0)
         except Exception as e:
-            stream_logger.error(f"Trends collector error: {e}")
+            stream_logger.error(f"Trends collector (fake fallback) error: {e}")
     
     # Start collector threads
     twitter_thread = threading.Thread(target=twitter_collector, name="TwitterCollector")
