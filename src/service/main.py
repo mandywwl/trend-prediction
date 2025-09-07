@@ -100,6 +100,35 @@ def log_event(event: Event) -> None:
             _rotate_event_log()
 
 
+# Database storage
+DATABASE_PATH = DATA_DIR / "events.db"
+try:
+    from data_pipeline.storage.database import EventDatabase
+    event_database = EventDatabase(DATABASE_PATH)
+    logger.info(f"Event database initialized at {DATABASE_PATH}")
+except Exception as e:
+    logger.warning(f"Failed to initialize database: {e}")
+    event_database = None
+
+
+def store_event_in_database(event: Event) -> None:
+    """Store event in database if available."""
+    if event_database:
+        try:
+            event_database.store_event(event)
+        except Exception as e:
+            logger.error(f"Failed to store event in database: {e}")
+
+
+def enhanced_log_event(event: Event) -> None:
+    """Enhanced event logging that stores in both JSONL and database."""
+    # Store in JSONL (for backwards compatibility)
+    log_event(event)
+    
+    # Store in database (for new features)
+    store_event_in_database(event)
+
+
 class EmbeddingPreprocessor:
     """Attach text embeddings to incoming events.
 
@@ -391,7 +420,7 @@ def create_event_stream():
         """Twitter collector thread."""
         def on_twitter_event(event):
             if not shutdown_event.is_set():
-                log_event(event)
+                enhanced_log_event(event)
                 event_queue.put(event)
         
         try:
@@ -404,7 +433,7 @@ def create_event_stream():
         """YouTube collector thread."""
         def on_youtube_event(event):
             if not shutdown_event.is_set():
-                log_event(event)
+                enhanced_log_event(event)
                 event_queue.put(event)
         
         try:
@@ -416,7 +445,7 @@ def create_event_stream():
         """Google Trends collector thread."""
         def on_trends_event(event):
             if not shutdown_event.is_set():
-                log_event(event)
+                enhanced_log_event(event)
                 event_queue.put(event)
         
         try:
@@ -477,6 +506,34 @@ def main(yaml_config_path: str = None):
     # Setup preprocessing
     setup_preprocessing()
     
+    # Initialize training scheduler and hourly collector
+    logger.info("Initializing training scheduler and hourly collector...")
+    training_scheduler = None
+    hourly_collector = None
+    
+    if event_database:
+        try:
+            from service.training_scheduler import TrainingScheduler, HourlyDataCollector
+            
+            # Initialize training scheduler (weekly retraining)
+            training_scheduler = TrainingScheduler(
+                database=event_database,
+                datasets_dir=DATA_DIR,
+                training_interval_hours=168,  # 1 week
+                min_events_for_training=100
+            )
+            
+            # Initialize hourly data collector
+            hourly_collector = HourlyDataCollector(database=event_database)
+            
+            # Start background services
+            training_scheduler.start()
+            hourly_collector.start()
+            
+            logger.info("Training scheduler and hourly collector started")
+        except Exception as e:
+            logger.error(f"Failed to initialize training components: {e}")
+    
     # Initialize components
     logger.info("Initializing components...")
     spam_scorer = SpamScorer()
@@ -499,6 +556,10 @@ def main(yaml_config_path: str = None):
     
     logger.info(f"Configuration: {config.__dict__}")
     
+    # Variables for cleanup
+    training_scheduler_ref = training_scheduler
+    hourly_collector_ref = hourly_collector
+    
     try:
         # Create unified event stream
         logger.info("Starting data collectors...")
@@ -516,6 +577,12 @@ def main(yaml_config_path: str = None):
         # Cleanup
         logger.info("Performing cleanup...")
         shutdown_event.set()
+        
+        # Stop training scheduler and hourly collector
+        if training_scheduler_ref:
+            training_scheduler_ref.stop()
+        if hourly_collector_ref:
+            hourly_collector_ref.stop()
         
         # Wait for collector threads to finish
         for thread in collectors_running:
