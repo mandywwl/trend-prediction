@@ -94,7 +94,10 @@ if __name__ == "__main__":
         if emb is None:
             emb = np.zeros(EDGE_DIM, dtype=np.float32)
         edge_attr_list.append(emb)
-    edge_attr = torch.FloatTensor(edge_attr_list)
+    # edge_attr = torch.FloatTensor(edge_attr_list)
+    edge_attr = torch.from_numpy(
+        np.stack(edge_attr_list, dtype=np.float32)
+    )
 
     MEM_DIM = 100
     TIME_DIM = 10
@@ -121,8 +124,13 @@ if __name__ == "__main__":
             edge_feat = edge_attr[i].unsqueeze(0)
             label = torch.tensor([1])  # dummy positive class
 
-            logits_single = model(src_i, dst_i, t_i, edge_feat)
-            logits = torch.cat([torch.zeros_like(logits_single), logits_single], dim=-1)
+            # logits_single = model(src_i, dst_i, t_i, edge_feat)
+            # logits = torch.cat([torch.zeros_like(logits_single), logits_single], dim=-1)
+            # TGN decoder outputs [emergence_logit, growth, diffusion].
+            # For the classification loss we only want a single binary logit.
+            logit_pos = model(src_i, dst_i, t_i, edge_feat)[..., 0:1]   # (B,1)
+            logits = torch.cat([torch.zeros_like(logit_pos), logit_pos], dim=-1)  # (B,2)
+
             loss = smoothed_cross_entropy(logits, label, num_classes=2)
 
             optimizer.zero_grad()
