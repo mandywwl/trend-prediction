@@ -2,14 +2,13 @@
 
 import json
 import tempfile
-import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 import pytest
 
-from src.service.runtime_glue import RuntimeGlue, RuntimeConfig, mock_event_stream
-from src.config.schemas import Event
+from service.runtime_glue import RuntimeGlue, RuntimeConfig, mock_event_stream
+from config.schemas import Event
 
 
 class MockEventHandler:

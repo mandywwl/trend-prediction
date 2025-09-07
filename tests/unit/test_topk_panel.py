@@ -10,7 +10,7 @@ import sys
 dashboard_path = Path(__file__).parent.parent.parent / "dashboard"
 sys.path.insert(0, str(dashboard_path))
 
-from components.topk import _load_predictions_cache, _format_countdown, _get_latest_predictions
+from dashboard.components.topk import _load_predictions_cache, _format_countdown, _get_latest_predictions
 
 
 def test_load_predictions_cache():

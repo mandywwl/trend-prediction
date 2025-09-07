@@ -6,9 +6,9 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from src.utils.io import LatencyTimer, LatencyAggregator, MetricsWriter, get_hour_bucket
-from src.config.schemas import HourlyMetrics, PrecisionAtKSnapshot
-from src.config.config import SLO_MED_MS, SLO_P95_MS, METRICS_SNAPSHOT_DIR
+from utils.io import LatencyTimer, LatencyAggregator, MetricsWriter, get_hour_bucket
+from config.schemas import HourlyMetrics, PrecisionAtKSnapshot
+from config.config import SLO_MED_MS, SLO_P95_MS, METRICS_SNAPSHOT_DIR
 
 
 def test_latency_timer():

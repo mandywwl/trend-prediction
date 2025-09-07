@@ -9,19 +9,12 @@ from transformers import DistilBertTokenizer, DistilBertModel
 
 def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
     """
-    Build TGN edge file from events.jsonl.
-    - events_path: path to events.jsonl (defaults to project/datasets/events.jsonl)
-    - output_path: path to save .npz (defaults to project/datasets/tgn_edges_basic.npz)
-    - force: if True, rebuild even if output exists
-    Returns output_path.
+    Build TGN edge file from events.jsonl
     """
-    project_root = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..")
-    )
     if events_path is None:
-        events_path = os.path.join(project_root, "datasets", "events.jsonl")
+        events_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets", "events.jsonl")
     if output_path is None:
-        output_path = os.path.join(project_root, "datasets", "tgn_edges_basic.npz")
+        output_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "datasets", "tgn_edges_basic.npz")
 
     if os.path.exists(output_path) and not force:
         print(

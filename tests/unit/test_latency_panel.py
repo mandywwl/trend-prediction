@@ -5,7 +5,6 @@ import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import sys
-import os
 
 # Add paths for imports
 dashboard_path = Path(__file__).parent.parent.parent / "dashboard"
@@ -13,11 +12,10 @@ src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(dashboard_path))
 sys.path.insert(0, str(src_path))
 
-from components.latency import (
+from dashboard.components.latency import (
     _load_hourly_metrics, 
     _safe_parse_latency,
-    _filter_slo_breaches,
-    render_panel
+    _filter_slo_breaches
 )
 from config.config import SLO_MED_MS, SLO_P95_MS
 

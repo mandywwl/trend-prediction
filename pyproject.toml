@@ -100,10 +100,7 @@ packages = [
     "service.api",
     "service.services",
     "service.services.inference",
-    "utils"
+    "utils",
+    "dashboard",
+    "dashboard.components"
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
-
