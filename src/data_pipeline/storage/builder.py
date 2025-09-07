@@ -1,6 +1,6 @@
 import torch
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from data_pipeline.transformers.event_parser import parse_event
 from data_pipeline.storage.decay import apply_time_decay
@@ -22,7 +22,12 @@ class GraphBuilder:
         *,
         spam_scorer: SpamScorer | None = None,
     ) -> None:
-        self.reference_time = reference_time or datetime.now()
+        # FIX: Ensure reference_time is always timezone-aware
+        self.reference_time = reference_time or datetime.now(timezone.utc)
+        # If a naive datetime is passed, make it aware
+        if self.reference_time.tzinfo is None:
+            self.reference_time = self.reference_time.replace(tzinfo=timezone.utc)
+        
         self.spam_scorer = spam_scorer
 
         # Edge storage for TemporalData
@@ -37,7 +42,22 @@ class GraphBuilder:
 
     def process_event(self, event):
         """Parse an incoming event and append it to the temporal edge stream."""
-        timestamp = datetime.fromisoformat(event["timestamp"])
+        # FIX: Handle both 'timestamp' and 'ts_iso' fields, and ensure timezone awareness
+        timestamp_str = event.get("timestamp") or event.get("ts_iso")
+        if not timestamp_str:
+            print(f"Warning: No timestamp found in event: {event}")
+            return
+            
+        # Parse timestamp and ensure it's timezone-aware
+        try:
+            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+        except:
+            timestamp = datetime.fromisoformat(timestamp_str)
+        
+        # If timestamp is naive, assume UTC
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        
         edges = parse_event(event)
 
         spam_multiplier = 1.0
@@ -88,10 +108,11 @@ class GraphBuilder:
     def to_temporal_data(self) -> TemporalData:
         """Return collected edges as a :class: `TemporalData` object."""
         if not self.src:
-            return TemporalData
+            return TemporalData()  # FIX: Return empty TemporalData object instead of class
         return TemporalData(
             src=torch.tensor(self.src, dtype=torch.long),
             dst=torch.tensor(self.dst, dtype=torch.long),
             t=torch.tensor(self.t, dtype=torch.float),
             msg=torch.tensor(self.msg, dtype=torch.float),
         )
+    
