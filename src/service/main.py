@@ -74,6 +74,8 @@ runtime_glue_instance = None
 # Event logging setup
 EVENT_LOG = DATA_DIR / "events.jsonl"
 _event_log_lock = threading.Lock()
+# Ensure the parent directory exists before opening the file
+EVENT_LOG.parent.mkdir(parents=True, exist_ok=True)
 _event_log_fh = open(EVENT_LOG, "a", encoding="utf-8")
 _MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -281,6 +283,10 @@ class IntegratedEventHandler(EventHandler):
             if self.event_counter % 100 == 0:
                 self._save_checkpoint()
             
+            # Run periodic preprocessing (every 1000 events to avoid overhead)
+            if self.event_counter % 1000 == 0:
+                periodic_preprocessing()
+            
             # Generate mock prediction scores for now
             # TODO: Replace with actual TGN inference when available
             scores = {
@@ -320,9 +326,16 @@ def run_stream(
 def setup_preprocessing():
     """Setup preprocessing if needed."""
     tgn_file = DATA_DIR / "tgn_edges_basic.npz"
+    events_file = EVENT_LOG
     
     if not build_tgn:
         logger.info("build_tgn not available; skipping preprocessing")
+        return
+    
+    # Check if events.jsonl exists before attempting preprocessing
+    if not events_file.exists():
+        logger.info("events.jsonl does not exist yet; skipping preprocessing for now")
+        logger.info("Preprocessing will be available after collectors generate some data")
         return
     
     try:
@@ -334,6 +347,35 @@ def setup_preprocessing():
             logger.info("TGN file exists, skipping preprocessing")
     except Exception as e:
         logger.error(f"Preprocessing failed: {e}")
+        logger.info("Continuing without preprocessing - collectors will still run")
+
+
+def periodic_preprocessing():
+    """Attempt preprocessing periodically after events have been collected."""
+    events_file = EVENT_LOG
+    tgn_file = DATA_DIR / "tgn_edges_basic.npz"
+    
+    if not build_tgn:
+        return
+    
+    # Only attempt if events file exists and has some content
+    if events_file.exists() and events_file.stat().st_size > 0:
+        try:
+            # Check if we should rebuild (weekly or if file doesn't exist)
+            should_rebuild = not tgn_file.exists()
+            if tgn_file.exists():
+                # Rebuild weekly (604800 seconds = 1 week)
+                file_age = time.time() - tgn_file.stat().st_mtime
+                should_rebuild = file_age > 604800
+            
+            if should_rebuild:
+                logger.info("Running periodic preprocessing (build_tgn)...")
+                build_tgn()
+                logger.info("Periodic preprocessing completed successfully")
+        except Exception as e:
+            logger.error(f"Periodic preprocessing failed: {e}")
+    else:
+        logger.debug("No events data available yet for preprocessing")
 
 
 def create_event_stream():

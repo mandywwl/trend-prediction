@@ -46,7 +46,10 @@ def build_tgn(events_path=None, output_path=None, force=False, max_text_len=32):
 
     def to_timestamp(ts):
         """Convert ISO8601 timestamp to float (seconds since epoch)"""
-        return datetime.fromisoformat(ts).timestamp()
+        # Use the utils datetime function for consistent timezone handling
+        from utils.datetime import parse_iso_timestamp
+        dt = parse_iso_timestamp(ts)
+        return dt.timestamp()
 
     def embed_text(text):
         """Embed text using DistilBERT and return the mean pooling of the output."""
