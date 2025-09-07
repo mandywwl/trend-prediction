@@ -6,8 +6,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import sys
 
+from utils.path_utils import find_repo_root
+
 # Add paths for imports
-dashboard_path = Path(__file__).parent.parent.parent / "dashboard"
+repo_root = find_repo_root()
+dashboard_path = repo_root / "dashboard"
 sys.path.insert(0, str(dashboard_path))
 
 from dashboard.components.topk import _load_predictions_cache, _format_countdown, _get_latest_predictions
@@ -130,3 +133,4 @@ if __name__ == "__main__":
     test_get_latest_predictions()
     test_get_latest_predictions_empty_cache()
     print("All TopK panel tests passed!")
+

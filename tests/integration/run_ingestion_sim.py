@@ -5,7 +5,6 @@ Runs the fake Twitter stream and a short fake Google Trends burst, routes events
 through the EventHandler/GraphBuilder, then saves a TemporalData checkpoint.
 """
 
-from pathlib import Path
 import time
 
 from data_pipeline.collectors.twitter_collector import fake_twitter_stream
@@ -16,10 +15,11 @@ from model.inference.adaptive_thresholds import SensitivityController
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 from service.main import EventHandler
 from utils.io import ensure_dir
+from utils.path_utils import find_repo_root
 
 
 def main():
-    data_dir = ensure_dir(Path(__file__).resolve().parents[1] / "datasets")
+    data_dir = ensure_dir(find_repo_root() / "datasets")
 
     spam_scorer = SpamScorer()
     graph = GraphBuilder(spam_scorer=spam_scorer)

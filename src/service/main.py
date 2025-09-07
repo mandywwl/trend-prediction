@@ -1,5 +1,4 @@
-"""Unified main entry point for streaming trend prediction service.
-"""
+"""Unified main entry point for streaming trend prediction service."""
 
 import os
 import sys
@@ -12,15 +11,15 @@ from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 
 import numpy as np
 
+from utils.path_utils import find_repo_root
+
 # Load environment variables from .env file
+project_root = find_repo_root()
 try:
     from dotenv import load_dotenv
-    # Load .env file from project root
-    project_root = Path(__file__).resolve().parents[2]
     load_dotenv(project_root / ".env")
 except ImportError:
     print("Warning: python-dotenv not installed. Please install it with: pip install python-dotenv")
-    project_root = Path(__file__).resolve().parents[2]
 
 # Ensure we can import from src
 src_path = project_root / "src"
