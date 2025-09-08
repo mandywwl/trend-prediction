@@ -263,6 +263,36 @@ class RuntimeGlue:
         except Exception as e:
             print(f"[{now.isoformat()}] Error updating predictions cache: {e}")
 
+    def update_topic_labels(self) -> None:
+        """Update topic labels using the topic labeling pipeline."""
+        try:
+            from data_pipeline.processors.topic_labeling import run_topic_labeling_pipeline
+            
+            print(f"[{datetime.now().isoformat()}] Running topic labeling pipeline...")
+            
+            # Run the pipeline to generate meaningful labels
+            result = run_topic_labeling_pipeline(
+                events_path="datasets/events.jsonl",
+                topic_lookup_path=str(self._topic_lookup_path),
+                use_embedder=False  # Use TF-IDF only for better performance
+            )
+            
+            # Reload the updated lookup
+            if self._topic_lookup_path.exists():
+                with open(self._topic_lookup_path, 'r', encoding='utf-8') as f:
+                    self._topic_lookup = json.load(f)
+            
+            updated_count = sum(1 for label in result.values() 
+                              if not (label.startswith("topic_") or 
+                                     label.startswith("test_") or 
+                                     label.startswith("viral_") or 
+                                     label.startswith("trending_")))
+            
+            print(f"[{datetime.now().isoformat()}] Topic labeling completed. Updated {updated_count} labels.")
+            
+        except Exception as e:
+            print(f"[{datetime.now().isoformat()}] Error running topic labeling pipeline: {e}")
+    
     def _update_topic_lookup(self, topic_id: int, label: str) -> None:
         """Persist mapping from topic_id to original label."""
         if not label:
