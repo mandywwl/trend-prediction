@@ -341,10 +341,9 @@ class IntegratedEventHandler(EventHandler):
             if self.event_counter % 5000 == 0:
                 self._refresh_topic_labels()
             timer.end_stage('postprocess')
-            
-            # Store measurement
-            self._record_latency(timer)
-            
+        
+        # Store measurement after context manager ends (when total_duration_ms is set)
+        self._record_latency(timer)
         return scores
     
     def _record_latency(self, timer):

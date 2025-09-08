@@ -28,9 +28,11 @@ from config.config import (
 from config.schemas import (
     Event,
     HourlyMetrics,
+    LatencySummary,
     PrecisionAtKSnapshot,
     PredictionsCache,
     CacheItem,
+    StageMs,
 )
 from model.evaluation.metrics import PrecisionAtKOnline
 from utils.io import MetricsWriter, get_hour_bucket, ensure_dir, maybe_load_yaml
@@ -191,16 +193,16 @@ class RuntimeGlue:
                 self.event_handler.latency_aggregator.clear()  # Reset for next hour
             else:
                 # Fallback for handlers without latency measurement
-                latency_summary = {
-                    'median_ms': 0,
-                    'p95_ms': 0,
-                    'per_stage_ms': {
-                        'ingest': 0,
-                        'preprocess': 0,
-                        'model_update_forward': 0,
-                        'postprocess': 0
-                    }
-                }
+                latency_summary = LatencySummary(
+                    median_ms=0,
+                    p95_ms=0,
+                    per_stage_ms=StageMs(
+                        ingest=0,
+                        preprocess=0,
+                        model_update_forward=0,
+                        postprocess=0
+                    )
+                )
             
             # Create hourly metrics (now with real latency data!)
             hourly_metrics = HourlyMetrics(
