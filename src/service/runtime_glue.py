@@ -185,12 +185,14 @@ class RuntimeGlue:
             precision_snapshot = self.precision_tracker.rolling_hourly_scores()
             adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
             
-            # Create hourly metrics (simplified - in real impl would include latency data)
-            hourly_metrics = HourlyMetrics(
-                precision_at_k=precision_snapshot,
-                adaptivity=adaptivity_score,
-                latency={
-                    'median_ms': 0,  # Would be populated from LatencyAggregator
+            # Get real latency data from handler
+            if hasattr(self.event_handler, 'latency_aggregator'):
+                latency_summary = self.event_handler.latency_aggregator.get_summary()
+                self.event_handler.latency_aggregator.clear()  # Reset for next hour
+            else:
+                # Fallback for handlers without latency measurement
+                latency_summary = {
+                    'median_ms': 0,
                     'p95_ms': 0,
                     'per_stage_ms': {
                         'ingest': 0,
@@ -198,7 +200,13 @@ class RuntimeGlue:
                         'model_update_forward': 0,
                         'postprocess': 0
                     }
-                },
+                }
+            
+            # Create hourly metrics (now with real latency data!)
+            hourly_metrics = HourlyMetrics(
+                precision_at_k=precision_snapshot,
+                adaptivity=adaptivity_score,
+                latency=latency_summary,  # Now real data!
                 meta={
                     'service': 'runtime_glue',
                     'config_delta_hours': str(self.config.delta_hours),

@@ -302,14 +302,33 @@ class IntegratedEventHandler(EventHandler):
         
         # Load existing topic lookup for generating realistic scores
         self._load_topic_lookup()
+        
+        # Latency measurement
+        from utils.io import LatencyAggregator
+        self.latency_aggregator = LatencyAggregator()
     
     def on_event(self, event: Event) -> Dict[str, float]:
         """Process event and return prediction scores for RuntimeGlue."""
-        try:
-            # Process through parent handler
-            super().handle(event)
+        from utils.io import LatencyTimer
+        
+        with LatencyTimer() as timer:
+            timer.start_stage('ingest')
+            # Event validation/logging 
             self.event_counter += 1
+            timer.end_stage('ingest')
             
+            timer.start_stage('preprocess')
+            # Process through parent handler (includes embedding)
+            super().handle(event)
+            timer.end_stage('preprocess')
+            
+            timer.start_stage('model_update_forward')
+            # Generate prediction scores using existing topic IDs from topic_lookup.json
+            scores = self._generate_realistic_scores(event)
+            timer.end_stage('model_update_forward')
+            
+            timer.start_stage('postprocess')
+            # Cache updates and periodic operations
             # Save periodic checkpoints
             if self.event_counter % 100 == 0:
                 self._save_checkpoint()
@@ -321,15 +340,23 @@ class IntegratedEventHandler(EventHandler):
             # Refresh topic labeling every 5000 events to update meaningful labels
             if self.event_counter % 5000 == 0:
                 self._refresh_topic_labels()
+            timer.end_stage('postprocess')
             
-            # Generate prediction scores using existing topic IDs from topic_lookup.json
-            scores = self._generate_realistic_scores(event)
+            # Store measurement
+            self._record_latency(timer)
             
-            return scores
-            
+        return scores
+    
+    def _record_latency(self, timer):
+        """Record latency measurements."""
+        try:
+            from utils.io import LatencyTimer
+            self.latency_aggregator.add_measurement(
+                timer.total_duration_ms,
+                timer.get_stage_ms()
+            )
         except Exception as e:
-            self.logger.error(f"Error processing event: {e}")
-            return {}
+            self.logger.error(f"Error recording latency: {e}")
     
     def _load_topic_lookup(self):
         """Load existing topic lookup for generating realistic scores."""
