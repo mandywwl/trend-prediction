@@ -90,7 +90,7 @@ def main():
             st.session_state[remaining_key] = remaining - 1
 
         time.sleep(1)
-        st.experimental_rerun()
+        st.rerun()
     
     # Refresh button
     if st.sidebar.button("🔄 Refresh Now"):
