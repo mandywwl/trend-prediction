@@ -1,0 +1,70 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      ENVIRONMENT: "development"
+      REGION: "asia-southeast1"
+      # Expose the secret directly to all steps
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements-cpu.txt
+            pyproject.toml
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install CPU requirements (torch, numpy, etc.)
+        run: pip install -r requirements-cpu.txt
+
+      - name: Install project
+        run: pip install -e .
+
+      - name: Build .env for Copilot environment
+        shell: bash
+        run: |
+          if [ -f ".env.example" ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
+          # Ensure .env has the YouTube key as well
+          if ! grep -q '^YOUTUBE_API_KEY=' .env 2>/dev/null; then
+            echo "YOUTUBE_API_KEY=${YOUTUBE_API_KEY}" >> .env
+          else
+            # Replace existing line to avoid duplicates
+            sed -i 's/^YOUTUBE_API_KEY=.*/YOUTUBE_API_KEY='"${YOUTUBE_API_KEY}"'/' .env
+          fi
+
+      - name: Verify environment for Copilot
+        run: |
+          python - <<'PY'
+          import os
+          from dotenv import load_dotenv
+          load_dotenv()
+          print("Job env present:", bool(os.getenv("YOUTUBE_API_KEY")))
+          print("Dotenv present:", bool(os.getenv("YOUTUBE_API_KEY")))
+          PY
