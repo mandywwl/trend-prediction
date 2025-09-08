@@ -5,11 +5,12 @@ Optimized for latency and SLO monitoring panels
 
 /* Custom metric card styling */
 .stMetric {
-    background-color: #f8f9fa;
-    border: 1px solid #e9ecef;
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
     border-radius: 0.375rem;
     padding: 0.75rem;
     margin: 0.25rem 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     transition: box-shadow 0.15s ease-in-out;
 }
 
@@ -20,20 +21,23 @@ Optimized for latency and SLO monitoring panels
 /* SLO-aware metric styling */
 .metric-success {
     border-left: 4px solid #28a745;
-    background-color: #f8fff8;
+    background-color: #d4edda;
+    color: #155724;
 }
 
 .metric-warning {
     border-left: 4px solid #ffc107;
-    background-color: #fffcf0;
+    background-color: #fff3cd;
+    color: #856404;
 }
 
 .metric-danger {
     border-left: 4px solid #dc3545;
-    background-color: #fff5f5;
+    background-color: #f8d7da;
+    color: #721c24;
 }
 
-/* Compact table styling */
+/* Compact table styling with proper text visibility */
 .stTable {
     font-size: 0.875rem;
 }
@@ -41,18 +45,39 @@ Optimized for latency and SLO monitoring panels
 .stTable table {
     border-collapse: collapse;
     width: 100%;
+    background-color: #ffffff !important;
 }
 
 .stTable th {
-    background-color: #f8f9fa;
-    font-weight: 600;
-    padding: 0.5rem;
-    border-bottom: 2px solid #dee2e6;
+    background-color: #f8f9fa !important;
+    color: #212529 !important;
+    font-weight: 600 !important;
+    padding: 0.75rem !important;
+    border: 1px solid #dee2e6 !important;
+    text-align: left !important;
 }
 
 .stTable td {
-    padding: 0.5rem;
-    border-bottom: 1px solid #dee2e6;
+    background-color: #ffffff !important;
+    color: #212529 !important;
+    padding: 0.75rem !important;
+    border: 1px solid #dee2e6 !important;
+}
+
+/* Force all table text to be dark */
+.stTable * {
+    color: #212529 !important;
+}
+
+.stTable thead th {
+    background-color: #f8f9fa !important;
+    color: #212529 !important;
+    font-weight: 600 !important;
+}
+
+.stTable tbody td {
+    background-color: #ffffff !important;
+    color: #212529 !important;
 }
 
 /* Alert styling */
@@ -153,6 +178,58 @@ Optimized for latency and SLO monitoring panels
     margin-bottom: 1rem;
     color: #495057;
     font-weight: 600;
+}
+
+/* Enhanced metric text visibility - Force dark text */
+.stMetric * {
+    color: #212529 !important;
+}
+
+.stMetric > div {
+    color: #212529 !important;
+}
+
+.stMetric > div > div {
+    color: #212529 !important;
+}
+
+.stMetric > div > div > div {
+    color: #212529 !important;
+}
+
+.stMetric [data-testid="metric-container"] {
+    color: #212529 !important;
+}
+
+.stMetric [data-testid="metric-container"] > div {
+    color: #212529 !important;
+}
+
+.stMetric [data-testid="metric-container"] > div:first-child {
+    color: #495057 !important;
+    font-weight: 500 !important;
+}
+
+.stMetric [data-testid="metric-container"] > div:last-child {
+    color: #212529 !important;
+    font-weight: 600 !important;
+    font-size: 1.25rem !important;
+}
+
+/* Target all possible metric text elements */
+.stMetric [data-testid="metric-value"] {
+    color: #212529 !important;
+    font-weight: bold !important;
+}
+
+.stMetric [data-testid="metric-label"] {
+    color: #495057 !important;
+    font-weight: 500 !important;
+}
+
+/* Override any Streamlit theme colors */
+div[data-testid="metric-container"] div {
+    color: #212529 !important;
 }
 
 /* Loading state styling */

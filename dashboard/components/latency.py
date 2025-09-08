@@ -210,6 +210,12 @@ def render_panel(
     # Apply custom CSS
     apply_custom_css()
     
+    # Load additional CSS from theme file
+    theme_css_path = Path(__file__).parent.parent / "static" / "theme.css"
+    if theme_css_path.exists():
+        with open(theme_css_path, 'r') as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    
     # Header
     st.header("⏱️ Latency & SLOs")
     

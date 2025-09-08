@@ -69,7 +69,7 @@ def main():
     )
     
     # Auto-refresh toggle
-    auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh (30s)", value=True)
+    auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh (30s)", value=False)
     if auto_refresh:
         # Streamlit auto-refresh using a non-blocking countdown
         st.sidebar.info("Dashboard will refresh automatically every 30 seconds")
