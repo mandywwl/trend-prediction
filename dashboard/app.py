@@ -8,6 +8,8 @@ import streamlit as st
 import sys
 from pathlib import Path
 import time
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend for Streamlit
 
 # Add src to Python path for imports
 src_path = Path(__file__).parent.parent / "src"
@@ -175,17 +177,110 @@ def render_robustness_panel():
         return
         
     try:
-        st.info("🚧 Robustness panel integration coming soon...")
-        st.write("This panel will show spam detection and threshold monitoring.")
+        # Get panel data from robustness component
+        panel_result = robustness.render_panel()
         
-        # For now, show that robustness component exists
-        if hasattr(robustness, 'render_panel'):
-            st.write("✅ Robustness component is available")
+        # Extract data
+        figure = panel_result.get("figure")
+        spam_rate = panel_result.get("spam_rate")
+        downweighted_pct = panel_result.get("downweighted_pct")
+        alert = panel_result.get("alert", {})
+        tooltips = panel_result.get("tooltips", {})
+        
+        # Display alert status at the top if there are any alerts
+        alert_level = alert.get("level", "ok")
+        alert_msg = alert.get("message", "")
+        
+        if alert_level == "alert":
+            st.error(f"🚨 **Alert**: {alert_msg}")
+        elif alert_level == "warn":
+            st.warning(f"⚠️ **Warning**: {alert_msg}")
+        elif alert_level == "ok" and alert_msg:
+            st.success(f"✅ {alert_msg}")
+        
+        # Main content area with columns
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        # Column 1: Theta timeline chart
+        with col1:
+            st.subheader("📈 Adaptive Thresholds (θ_g/θ_u)")
+            if figure:
+                st.pyplot(figure)
+            else:
+                st.info("No threshold data available for the last 24 hours")
+        
+        # Column 2: Spam Rate KPI
+        with col2:
+            st.subheader("🚫 Spam Rate")
+            if spam_rate is not None:
+                # Color based on spam rate threshold
+                spam_rate_spike = tooltips.get("spam_rate_spike", 0.1)
+                if spam_rate >= spam_rate_spike:
+                    st.error(f"**{spam_rate:.1%}**")
+                    st.caption("⚠️ Above spike threshold")
+                else:
+                    st.success(f"**{spam_rate:.1%}**")
+                    st.caption("✅ Normal levels")
+                
+                # Show threshold info
+                st.caption(f"Threshold: {spam_rate_spike:.1%}")
+            else:
+                st.info("**N/A**")
+                st.caption("No recent data")
+        
+        # Column 3: Down-weighted Edges KPI
+        with col3:
+            st.subheader("⚖️ Down-weighted Edges")
+            if downweighted_pct is not None:
+                st.metric(
+                    label="Percentage",
+                    value=f"{downweighted_pct:.1f}%"
+                )
+                if downweighted_pct > 20:  # Arbitrary threshold for display
+                    st.caption("🔴 High down-weighting")
+                elif downweighted_pct > 10:
+                    st.caption("🟡 Moderate down-weighting")
+                else:
+                    st.caption("🟢 Low down-weighting")
+            else:
+                st.info("**N/A**")
+                st.caption("No recent data")
+        
+        # Additional info section
+        with st.expander("ℹ️ Configuration & Details"):
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.write("**Monitoring Parameters:**")
+                st.write(f"- Delta Hours: {tooltips.get('delta_hours', 'N/A')}")
+                st.write(f"- Window Minutes: {tooltips.get('window_min', 'N/A')}")
+                st.write(f"- Spam Rate Spike Threshold: {tooltips.get('spam_rate_spike', 'N/A')}")
+            
+            with col_b:
+                st.write("**Data Sources:**")
+                st.write("- `datasets/adaptive_thresholds.log`")
+                st.write("- `datasets/events.jsonl`")
+                st.write("- Hourly metrics snapshots")
+        
+        # Show panel status in sidebar
+        st.sidebar.subheader("🛡️ Robustness Status")
+        
+        if alert_level == "alert":
+            st.sidebar.error("🚨 Alert Active")
+        elif alert_level == "warn":
+            st.sidebar.warning("⚠️ Warning Active")
         else:
-            st.write("⚠️ Robustness component not yet integrated")
+            st.sidebar.success("✅ All Normal")
+            
+        # Sidebar metrics summary
+        if spam_rate is not None:
+            st.sidebar.metric("Spam Rate", f"{spam_rate:.1%}")
+        if downweighted_pct is not None:
+            st.sidebar.metric("Down-weighted", f"{downweighted_pct:.1f}%")
             
     except Exception as e:
         st.error(f"❌ Error rendering Robustness panel: {e}")
+        st.sidebar.error("❌ Panel Error")
 
 
 def render_about_panel():

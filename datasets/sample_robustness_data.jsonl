@@ -1,0 +1,5 @@
+{"ts": "2025-09-09T02:00:00.000+00:00", "action": "thresholds_updated", "theta_g": 0.75, "theta_u": 0.65, "spam_rate": 0.15}
+{"ts": "2025-09-09T02:30:00.000+00:00", "action": "thresholds_updated", "theta_g": 0.78, "theta_u": 0.68, "spam_rate": 0.18}
+{"ts": "2025-09-09T03:00:00.000+00:00", "action": "thresholds_updated", "theta_g": 0.85, "theta_u": 0.75, "spam_rate": 0.22}
+{"ts": "2025-09-09T03:30:00.000+00:00", "action": "thresholds_updated", "theta_g": 0.88, "theta_u": 0.78, "spam_rate": 0.25}
+{"ts": "2025-09-09T04:00:00.000+00:00", "action": "thresholds_updated", "theta_g": 0.82, "theta_u": 0.72, "spam_rate": 0.19}
