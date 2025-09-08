@@ -83,10 +83,13 @@ def main():
         else:
             elapsed = now - last
             remaining = max(0, int(interval_s - elapsed))
-            st.sidebar.caption(f"Next refresh in {remaining}s")
-            if elapsed >= interval_s:
-                st.session_state["_last_auto_refresh_ts"] = now
-                st.rerun()
+            counter = st.sidebar.empty()
+            while remaining > 0:
+                counter.caption(f"Next refresh in {remaining}s")
+                time.sleep(1)
+                remaining -= 1
+            st.session_state["_last_auto_refresh_ts"] = time.time()
+            st.rerun()
     
     # Refresh button
     if st.sidebar.button("🔄 Refresh Now"):
