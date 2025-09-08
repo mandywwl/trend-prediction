@@ -7,16 +7,19 @@ The Topic Labeling Pipeline automatically generates meaningful topic names by an
 ## Features
 
 ### 1. Textual Example Gathering
+
 - Collects text examples from `datasets/events.jsonl`
 - Categorizes content by source and semantic patterns
 - Groups texts into meaningful categories (music, technology, gaming, social media, etc.)
 
 ### 2. Semantic Clustering  
+
 - Uses TF-IDF vectorization for keyword extraction
 - Optionally supports DistilBERT embeddings for advanced clustering
 - Identifies representative text clusters within each topic
 
 ### 3. Label Derivation
+
 - Extracts meaningful keywords using multiple strategies:
   - Artist/brand name detection (e.g., "Taylor Swift", "YoungBoy Never Broke Again")
   - Content type classification (e.g., "Technology", "Gaming", "Music")
@@ -24,6 +27,7 @@ The Topic Labeling Pipeline automatically generates meaningful topic names by an
 - Generates clean, concise labels (max 3 words)
 
 ### 4. Automatic Integration
+
 - Updates `datasets/topic_lookup.json` with new labels
 - Integrates seamlessly with existing dashboard display
 - Preserves topic ID mappings for consistency
@@ -75,6 +79,7 @@ glue.update_topic_labels()  # Refresh topic labels
 ## Examples
 
 ### Before (Placeholder Labels)
+
 ```json
 {
   "158454": "topic_0",
@@ -86,6 +91,7 @@ glue.update_topic_labels()  # Refresh topic labels
 ```
 
 ### After (Meaningful Labels)
+
 ```json
 {
   "158454": "Youngboy Broke",
@@ -100,8 +106,8 @@ glue.update_topic_labels()  # Refresh topic labels
 
 The updated labels automatically appear in the dashboard:
 
-```
-📊 Top-K Live Predictions:
+```text
+Top-K Live Predictions:
 1. Youngboy Broke (Score: 0.95)  
 2. Technology (Score: 0.87)
 3. Carpenter Tears (Score: 0.82)
@@ -110,17 +116,20 @@ The updated labels automatically appear in the dashboard:
 ## Algorithm Details
 
 ### Text Collection Strategy
+
 1. **Content Analysis**: Identifies music, technology, gaming, and social media content
 2. **Semantic Grouping**: Groups similar content types together
 3. **Topic Assignment**: Maps content groups to existing topic IDs deterministically
 
 ### Label Generation Process  
+
 1. **Keyword Extraction**: Uses TF-IDF to identify important terms
 2. **Pattern Recognition**: Detects artist names, brands, and content types
 3. **Label Construction**: Creates concise, meaningful labels from extracted features
 4. **Fallback Handling**: Provides generic labels when specific patterns aren't found
 
 ### Quality Assurance
+
 - Filters out common stopwords and generic terms
 - Limits label length for dashboard compatibility  
 - Provides graceful fallbacks for edge cases
@@ -129,33 +138,25 @@ The updated labels automatically appear in the dashboard:
 ## Testing
 
 ### Unit Tests
+
 ```bash
 # Run topic labeling tests
 pytest tests/unit/test_topic_labeling.py -v
 ```
 
 ### Integration Verification
+
 ```bash  
 # Verify dashboard integration
 python scripts/verify_dashboard_integration.py
 ```
 
 ### Manual Testing
+
 ```bash
 # Test individual components
 python -c "from data_pipeline.processors.topic_labeling import TopicLabeler; labeler = TopicLabeler(use_embedder=False); print('✅ Import successful')"
 ```
-
-## Dependencies
-
-### Required
-- `scikit-learn` - TF-IDF vectorization and clustering
-- `numpy` - Numerical operations
-- `transformers` - Text processing utilities
-
-### Optional  
-- `torch` - For DistilBERT embeddings (when `use_embedder=True`)
-- `cachetools` - Embedding caching (when using embedder)
 
 ## Performance
 
@@ -169,22 +170,26 @@ python -c "from data_pipeline.processors.topic_labeling import TopicLabeler; lab
 ### Common Issues
 
 **No labels updated**: Check that events file exists and contains text data
+
 ```bash
 ls -la datasets/events.jsonl
 head -n 5 datasets/events.jsonl
 ```
 
 **Generic labels only**: Increase `min_texts_per_topic` or check text quality
+
 ```python
 labeler = TopicLabeler(min_texts_per_topic=2)  # Lower threshold
 ```
 
 **Embedding errors**: Disable embedder for offline mode
+
 ```python
 run_topic_labeling_pipeline(use_embedder=False)
 ```
 
 ### Debug Mode
+
 ```python
 # Enable detailed logging
 import logging
@@ -198,16 +203,10 @@ for topic_id, texts in topic_texts.items():
 
 ## Architecture
 
-```
+```text
 Event Data → Text Collection → Clustering → Label Generation → Topic Lookup Update
      ↓              ↓              ↓              ↓                    ↓
 events.jsonl → TopicLabeler → TF-IDF/KMeans → Keyword Extract → topic_lookup.json
                                                      ↓
                                               Dashboard Display
 ```
-
-The pipeline is designed to be:
-- **Modular**: Each step can be tested and modified independently
-- **Extensible**: New labeling strategies can be easily added
-- **Robust**: Graceful handling of missing data and edge cases
-- **Integrated**: Seamless compatibility with existing infrastructure
