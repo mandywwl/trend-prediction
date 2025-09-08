@@ -112,8 +112,12 @@ A real-time trend prediction model using Temporal Graph Networks (TGN) to identi
 
     ```bash
     cp .env.example .env
-    Edit .env with your API credentials:
-    envTWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
+    ```
+
+    **Edit .env with your API credentials:**
+
+    ```env
+    TWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
     YOUTUBE_API_KEY=your_youtube_api_key_here
     ```
 
