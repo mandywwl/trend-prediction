@@ -291,7 +291,19 @@ class PrecisionAtKOnline:
 
     # ------------------------------------------------------------------
     def record_predictions(self, *, ts_iso: str, items: Iterable[Tuple[int, float]]) -> None:
-        ts = parse_iso_timestamp(ts_iso)
+        # Guard against None or empty timestamps
+        if not ts_iso:
+            return
+        
+        try:
+            ts = parse_iso_timestamp(ts_iso)
+        except Exception:
+            # If timestamp parsing fails, skip this prediction
+            return
+            
+        if ts is None:
+            return
+        
         self._latest_ts = max(self._latest_ts or ts, ts)
         sorted_items = sorted(items, key=lambda x: (-float(x[1]), int(x[0])))
         self._pred_log.append(_TopKEntry(ts=ts, items=sorted_items))
@@ -302,7 +314,12 @@ class PrecisionAtKOnline:
         window_start = now - timedelta(minutes=self.window_min)
         matured: List[_TopKEntry] = []
         for entry in self._pred_log:
+            # Skip entries with invalid timestamps
+            if entry.ts is None:
+                continue
             mat = entry.matured_at(self.delta_hours)
+            if mat is None:
+                continue
             if window_start <= mat <= now:
                 matured.append(entry)
 
@@ -337,6 +354,11 @@ class PrecisionAtKOnline:
     def _update_adaptivity(self, entry: _TopKEntry) -> None:
         """Update adaptivity tracking based on matured prediction entry."""
         mat_time = entry.matured_at(self.delta_hours)
+        
+        # Guard against None timestamps
+        if mat_time is None or entry.ts is None:
+            return
+        
         for tid, score in entry.items:
             buf = self._labels.get(tid)
             actual = (
@@ -357,11 +379,11 @@ class PrecisionAtKOnline:
                     self._shift_start = None
                     self._shift_mape = None
 
-        # Evict old records
+        # Evict old records - guard against None timestamps
         cutoff = mat_time - timedelta(minutes=self.window_min)
-        while self._mape_log and self._mape_log[0][0] < cutoff:
+        while self._mape_log and self._mape_log[0][0] is not None and self._mape_log[0][0] < cutoff:
             self._mape_log.popleft()
-        while self._adaptivity_log and self._adaptivity_log[0][0] < cutoff:
+        while self._adaptivity_log and self._adaptivity_log[0][0] is not None and self._adaptivity_log[0][0] < cutoff:
             self._adaptivity_log.popleft()
 
     # ------------------------------------------------------------------

@@ -7,7 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-from data_pipeline.processors.topic_labeling import TopicLabeler, run_topic_labeling_pipeline
+try:  # pragma: no cover - skip if heavy deps missing
+    from data_pipeline.processors.topic_labeling import TopicLabeler, run_topic_labeling_pipeline
+except ModuleNotFoundError as e:  # pragma: no cover
+    pytest.skip(f"topic labeling tests skipped: {e}", allow_module_level=True)
 
 
 @pytest.fixture
@@ -264,6 +267,7 @@ class TestTopicLabelingFunction:
         
         # Should call the pipeline
         mock_labeler.run_labeling_pipeline.assert_called_once()
-        
+
         # Should return the result
         assert result == {"123": "Test Topic"}
+        assert all(not str(v).isdigit() for v in result.values())

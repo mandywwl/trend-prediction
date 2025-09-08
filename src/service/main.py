@@ -6,10 +6,12 @@ import threading
 import signal
 import time
 import json
+import queue
+import random
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 
-import numpy as np
+
 
 from utils.path_utils import find_repo_root
 
@@ -162,7 +164,7 @@ class EmbeddingPreprocessor:
             ]
         )
 
-        self._zero_emb: np.ndarray | None = None
+        self._zero_emb = None  # Will be np.ndarray when initialized
 
     def _extract_text(self, event: Event) -> str | None:
         for field in self.text_fields:
@@ -181,6 +183,7 @@ class EmbeddingPreprocessor:
         text = self._extract_text(event)
         if text is None or light:
             if self._zero_emb is None:
+                import numpy as np
                 dim = self.embedder.model.config.hidden_size
                 self._zero_emb = np.zeros(dim, dtype=np.float32)
             emb = self._zero_emb
@@ -310,46 +313,45 @@ class IntegratedEventHandler(EventHandler):
     def on_event(self, event: Event) -> Dict[str, float]:
         """Process event and return prediction scores for RuntimeGlue."""
         from utils.io import LatencyTimer
-        
         with LatencyTimer() as timer:
             timer.start_stage('ingest')
-            # Event validation/logging 
+            # Event validation/logging
             self.event_counter += 1
             timer.end_stage('ingest')
-            
+
             timer.start_stage('preprocess')
             # Process through parent handler (includes embedding)
             super().handle(event)
             timer.end_stage('preprocess')
-            
+
             timer.start_stage('model_update_forward')
             # Generate prediction scores using existing topic IDs from topic_lookup.json
             scores = self._generate_realistic_scores(event)
             timer.end_stage('model_update_forward')
-            
+
             timer.start_stage('postprocess')
             # Cache updates and periodic operations
             # Save periodic checkpoints
             if self.event_counter % 100 == 0:
                 self._save_checkpoint()
-            
+
             # Run periodic preprocessing (every 1000 events to avoid overhead)
             if self.event_counter % 1000 == 0:
                 periodic_preprocessing()
-            
+
             # Refresh topic labeling every 5000 events to update meaningful labels
             if self.event_counter % 5000 == 0:
                 self._refresh_topic_labels()
             timer.end_stage('postprocess')
-        
-        # Store measurement after context manager ends (when total_duration_ms is set)
+            
+        # Store measurement AFTER exiting context (total_duration_ms is set in __exit__)
+
         self._record_latency(timer)
         return scores
     
     def _record_latency(self, timer):
         """Record latency measurements."""
         try:
-            from utils.io import LatencyTimer
             self.latency_aggregator.add_measurement(
                 timer.total_duration_ms,
                 timer.get_stage_ms()
@@ -367,9 +369,14 @@ class IntegratedEventHandler(EventHandler):
             try:
                 with open(self.topic_lookup_path, 'r', encoding='utf-8') as f:
                     topic_mapping = json.load(f)
-                    # Get all existing topic IDs (convert to integers for scoring)
-                    self.topic_ids = [int(tid) for tid in topic_mapping.keys()]
-                    self.logger.info(f"Loaded {len(self.topic_ids)} existing topic IDs from topic_lookup.json")
+                    # Get all existing topic IDs whose labels are non-numeric
+                    self.topic_ids = [
+                        int(tid) for tid, label in topic_mapping.items()
+                        if not str(label).isdigit()
+                    ]
+                    self.logger.info(
+                        f"Loaded {len(self.topic_ids)} existing topic IDs from topic_lookup.json"
+                    )
             except Exception as e:
                 self.logger.warning(f"Failed to load topic lookup: {e}")
         
@@ -380,7 +387,6 @@ class IntegratedEventHandler(EventHandler):
     
     def _generate_realistic_scores(self, event: Event) -> Dict[str, float]:
         """Generate prediction scores using existing topic IDs instead of placeholders."""
-        import random
         import numpy as np
         
         # Select a subset of topic IDs to score (simulate top-k predictions)

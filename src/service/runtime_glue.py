@@ -11,6 +11,7 @@ Provides a single entrypoint that:
 import json
 import time
 import threading
+import traceback
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Generator
@@ -24,6 +25,7 @@ from config.config import (
     METRICS_SNAPSHOT_DIR,
     PREDICTIONS_CACHE_PATH,
     TOPIC_LOOKUP_PATH,
+    METRICS_LOOKUP_PATH,
 )
 from config.schemas import (
     Event,
@@ -48,6 +50,7 @@ class RuntimeConfig:
     metrics_snapshot_dir: str = METRICS_SNAPSHOT_DIR
     predictions_cache_path: str = PREDICTIONS_CACHE_PATH
     topic_lookup_path: str = TOPIC_LOOKUP_PATH
+    metrics_lookup_path: str = METRICS_LOOKUP_PATH
     update_interval_sec: int = 60  # Update metrics every minute
     enable_background_timer: bool = True  # Enable background dashboard updates
     
@@ -67,6 +70,7 @@ class RuntimeConfig:
             metrics_snapshot_dir=runtime_config.get('metrics_snapshot_dir', METRICS_SNAPSHOT_DIR),
             predictions_cache_path=runtime_config.get('predictions_cache_path', PREDICTIONS_CACHE_PATH),
             topic_lookup_path=runtime_config.get('topic_lookup_path', TOPIC_LOOKUP_PATH),
+            metrics_lookup_path=runtime_config.get('metrics_lookup_path', METRICS_LOOKUP_PATH),
             update_interval_sec=runtime_config.get('update_interval_sec', 60),
             enable_background_timer=runtime_config.get('enable_background_timer', True),
         )
@@ -100,6 +104,7 @@ class RuntimeGlue:
         ensure_dir(self.config.metrics_snapshot_dir)
         ensure_dir(Path(self.config.predictions_cache_path).parent)
         ensure_dir(Path(self.config.topic_lookup_path).parent)
+        ensure_dir(Path(self.config.metrics_lookup_path).parent)
 
         self._topic_lookup_path = Path(self.config.topic_lookup_path)
         if self._topic_lookup_path.exists():
@@ -110,6 +115,16 @@ class RuntimeGlue:
                 self._topic_lookup = {}
         else:
             self._topic_lookup = {}
+
+        self._metrics_lookup_path = Path(self.config.metrics_lookup_path)
+        if self._metrics_lookup_path.exists():
+            try:
+                with open(self._metrics_lookup_path, 'r', encoding='utf-8') as f:
+                    self._metrics_lookup = json.load(f)
+            except Exception:
+                self._metrics_lookup = {}
+        else:
+            self._metrics_lookup = {}
         
         # Runtime state
         self._running = False
@@ -127,6 +142,15 @@ class RuntimeGlue:
         self._shutdown_event.set()
         self._running = False
         self._stop_background_timer()
+    
+    def _safe_parse_iso(self, ts_iso: str) -> Optional[datetime]:
+        """Safely parse ISO timestamp, returning None on failure."""
+        try:
+            if not ts_iso:
+                return None
+            return datetime.fromisoformat(ts_iso.replace('Z', '+00:00'))
+        except Exception:
+            return None
     
     def _start_background_timer(self):
         """Start background timer for periodic dashboard updates."""
@@ -166,10 +190,16 @@ class RuntimeGlue:
                 # Update metrics and cache if still running and due for update
                 if self._timer_running and not self._shutdown_event.is_set():
                     if self._should_update_metrics():
-                        self._update_metrics_and_cache()
+                        try:
+                            self._update_metrics_and_cache()
+                        except Exception as e:
+                            # Log full traceback to pinpoint exact failing line
+                            print(f"Error in background timer during update: {e}\n{traceback.format_exc()}")
+                            # Continue loop after brief pause
+                            time.sleep(2.0)
                     
             except Exception as e:
-                print(f"Error in background timer: {e}")
+                print(f"Error in background timer: {e}\n{traceback.format_exc()}")
                 # Continue the loop despite errors
                 time.sleep(5.0)  # Wait a bit before retrying
     
@@ -184,48 +214,94 @@ class RuntimeGlue:
             now = datetime.now(timezone.utc)
 
             # Get rolling precision scores
-            precision_snapshot = self.precision_tracker.rolling_hourly_scores()
-            adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
-            
-            # Get real latency data from handler
-            if hasattr(self.event_handler, 'latency_aggregator'):
-                latency_summary = self.event_handler.latency_aggregator.get_summary()
-                self.event_handler.latency_aggregator.clear()  # Reset for next hour
-            else:
-                # Fallback for handlers without latency measurement
-                latency_summary = LatencySummary(
-                    median_ms=0,
-                    p95_ms=0,
-                    per_stage_ms=StageMs(
-                        ingest=0,
-                        preprocess=0,
-                        model_update_forward=0,
-                        postprocess=0
-                    )
-                )
-            
-            # Create hourly metrics (now with real latency data!)
-            hourly_metrics = HourlyMetrics(
-                precision_at_k=precision_snapshot,
-                adaptivity=adaptivity_score,
-                latency=latency_summary,  # Now real data!
-                meta={
-                    'service': 'runtime_glue',
-                    'config_delta_hours': str(self.config.delta_hours),
-                    'config_window_min': str(self.config.window_min)
-                }
-            )
-            
-            # Write hourly snapshot
-            hour_bucket = get_hour_bucket(now)
             try:
+                precision_snapshot = self.precision_tracker.rolling_hourly_scores()
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error computing rolling_hourly_scores: {e}\n{traceback.format_exc()}")
+                precision_snapshot = {'k5': 0.0, 'k10': 0.0, 'support': 0}
+
+            # Get adaptivity score
+            try:
+                adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error computing rolling_adaptivity_score: {e}\n{traceback.format_exc()}")
+                adaptivity_score = 0.0
+
+            # Get real latency data from handler
+
+            try:
+                if hasattr(self.event_handler, 'latency_aggregator'):
+                    latency_summary = self.event_handler.latency_aggregator.get_summary()
+                    self.event_handler.latency_aggregator.clear()  # Reset for next hour
+                else:
+                    # Fallback for handlers without latency measurement
+                    latency_summary = {
+                        'median_ms': 0,
+                        'p95_ms': 0,
+                        'per_stage_ms': {
+                            'ingest': 0,
+                            'preprocess': 0,
+                            'model_update_forward': 0,
+                            'postprocess': 0
+                        }
+                    }
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error getting latency summary: {e}\n{traceback.format_exc()}")
+                latency_summary = {
+                    'median_ms': 0,
+                    'p95_ms': 0,
+                    'per_stage_ms': {
+                        'ingest': 0,
+                        'preprocess': 0,
+                        'model_update_forward': 0,
+                        'postprocess': 0
+                    }
+                }
+
+
+            # Create hourly metrics (now with real latency data!)
+            try:
+                hourly_metrics = HourlyMetrics(
+                    precision_at_k=precision_snapshot,
+                    adaptivity=adaptivity_score,
+                    latency=latency_summary,
+                    meta={
+                        'service': 'runtime_glue',
+                        'config_delta_hours': str(self.config.delta_hours),
+                        'config_window_min': str(self.config.window_min)
+                    }
+                )
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error constructing HourlyMetrics payload: {e}\n{traceback.format_exc()}")
+                hourly_metrics = HourlyMetrics(
+                    precision_at_k={'k5': 0.0, 'k10': 0.0, 'support': 0},
+                    adaptivity=0.0,
+                    latency={
+                        'median_ms': 0,
+                        'p95_ms': 0,
+                        'per_stage_ms': {
+                            'ingest': 0,
+                            'preprocess': 0,
+                            'model_update_forward': 0,
+                            'postprocess': 0
+                        }
+                    },
+                    meta={'service': 'runtime_glue'}
+                )
+
+            # Write hourly snapshot
+            try:
+                hour_bucket = get_hour_bucket(now)
                 self.metrics_writer.write_hourly_snapshot(hour_bucket, hourly_metrics)
                 print(f"[{now.isoformat()}] Wrote hourly metrics snapshot for {hour_bucket}")
             except Exception as e:
-                print(f"[{now.isoformat()}] Error writing metrics snapshot: {e}")
+                print(f"[{now.isoformat()}] Error writing metrics snapshot: {e}\n{traceback.format_exc()}")
             
             # Update predictions cache
-            self._update_predictions_cache(now)
+            try:
+                self._update_predictions_cache(now)
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error updating predictions cache: {e}\n{traceback.format_exc()}")
             
             # Update last update time
             self._last_update = now
@@ -259,7 +335,8 @@ class RuntimeGlue:
                 cutoff_time = now - timedelta(hours=1)
                 cache_data["items"] = [
                     item for item in cache_data["items"]
-                    if datetime.fromisoformat(item["t_iso"].replace('Z', '+00:00')) > cutoff_time
+                    if item.get("t_iso") and self._safe_parse_iso(item["t_iso"]) and 
+                    self._safe_parse_iso(item["t_iso"]) > cutoff_time
                 ]
                 
                 # Write cache atomically
@@ -304,7 +381,7 @@ class RuntimeGlue:
             print(f"[{datetime.now().isoformat()}] Error running topic labeling pipeline: {e}")
     
     def _update_topic_lookup(self, topic_id: int, label: str) -> None:
-        """Persist mapping from topic_id to original label."""
+        """Persist mapping from topic_id to original label in topic lookup."""
         if not label:
             return
         try:
@@ -316,12 +393,28 @@ class RuntimeGlue:
         except Exception as e:
             print(f"[{datetime.now().isoformat()}] Error updating topic lookup: {e}")
 
+    def _update_metrics_lookup(self, topic_id: int, label: str) -> None:
+        """Persist mapping from topic_id to original label in metrics lookup."""
+        if not label:
+            return
+        try:
+            key = str(topic_id)
+            if self._metrics_lookup.get(key) != label:
+                self._metrics_lookup[key] = label
+                with open(self._metrics_lookup_path, 'w', encoding='utf-8') as f:
+                    json.dump(self._metrics_lookup, f, indent=2)
+        except Exception as e:
+            print(f"[{datetime.now().isoformat()}] Error updating metrics lookup: {e}")
+
     def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]):
         """Record event and scores for metrics tracking."""
         try:
             # Extract topic_id and user_id from event
             topic_id = hash(event.get('event_id', '')) % 1000000  # Simple hash for demo
-            self._update_topic_lookup(topic_id, event.get('event_id', ''))
+            label = event.get('event_id', '')
+            self._update_metrics_lookup(topic_id, label)
+            if label and not str(label).isdigit():
+                self._update_topic_lookup(topic_id, label)
             user_id = event.get('actor_id', 'unknown')
             ts_iso = event.get('ts_iso', datetime.now(timezone.utc).isoformat())
             
@@ -340,7 +433,9 @@ class RuntimeGlue:
                         # Convert string topic names to integer IDs for the metrics system
                         topic_id = abs(hash(key)) % 1000000
                         predictions.append((topic_id, score))
-                        self._update_topic_lookup(topic_id, key)
+                        self._update_metrics_lookup(topic_id, key)
+                        if key and not str(key).isdigit():
+                            self._update_topic_lookup(topic_id, key)
                 
                 if predictions:
                     self.precision_tracker.record_predictions(
@@ -403,10 +498,13 @@ class RuntimeGlue:
         
         # Final metrics update
         try:
-            self._update_metrics_and_cache()
+            try:
+                self._update_metrics_and_cache()
+            except Exception as e:
+                print(f"Error during final metrics update (inner): {e}\n{traceback.format_exc()}")
             print("Final metrics update completed")
         except Exception as e:
-            print(f"Error during final metrics update: {e}")
+            print(f"Error during final metrics update: {e}\n{traceback.format_exc()}")
         
         print("Runtime glue shutdown complete")
 
