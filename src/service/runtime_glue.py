@@ -30,9 +30,11 @@ from config.config import (
 from config.schemas import (
     Event,
     HourlyMetrics,
+    LatencySummary,
     PrecisionAtKSnapshot,
     PredictionsCache,
     CacheItem,
+    StageMs,
 )
 from model.evaluation.metrics import PrecisionAtKOnline
 from utils.io import MetricsWriter, get_hour_bucket, ensure_dir, maybe_load_yaml
@@ -226,6 +228,7 @@ class RuntimeGlue:
                 adaptivity_score = 0.0
 
             # Get real latency data from handler
+
             try:
                 if hasattr(self.event_handler, 'latency_aggregator'):
                     latency_summary = self.event_handler.latency_aggregator.get_summary()
@@ -254,6 +257,7 @@ class RuntimeGlue:
                         'postprocess': 0
                     }
                 }
+
 
             # Create hourly metrics (now with real latency data!)
             try:

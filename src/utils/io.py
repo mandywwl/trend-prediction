@@ -79,13 +79,15 @@ class LatencyAggregator:
             'postprocess': []
         }
     
-    def add_measurement(self, total_ms: int, stage_ms: StageMs):
+    def add_measurement(self, total_ms: Optional[int], stage_ms: StageMs):
         """Add a latency measurement."""
-        self.measurements.append(total_ms)
-        self.stage_measurements['ingest'].append(stage_ms['ingest'])
-        self.stage_measurements['preprocess'].append(stage_ms['preprocess'])
-        self.stage_measurements['model_update_forward'].append(stage_ms['model_update_forward'])
-        self.stage_measurements['postprocess'].append(stage_ms['postprocess'])
+        # Skip None values to avoid errors in percentile calculations
+        if total_ms is not None:
+            self.measurements.append(total_ms)
+            self.stage_measurements['ingest'].append(stage_ms['ingest'])
+            self.stage_measurements['preprocess'].append(stage_ms['preprocess'])
+            self.stage_measurements['model_update_forward'].append(stage_ms['model_update_forward'])
+            self.stage_measurements['postprocess'].append(stage_ms['postprocess'])
     
     def get_summary(self) -> LatencySummary:
         """Calculate latency summary with SLO comparison."""
