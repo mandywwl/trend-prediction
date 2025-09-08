@@ -159,3 +159,7 @@ cython_debug/
 test_datasets/
 datasets/metrics_hourly/*.json
 datasets/predictions_cache.json
+
+# Test-generated metrics directories
+datasets/test_metrics/
+datasets/test_direct/
