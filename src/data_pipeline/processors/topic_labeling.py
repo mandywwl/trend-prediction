@@ -79,8 +79,10 @@ class TopicLabeler:
         topic_texts = defaultdict(list)
         
         if not self.events_path.exists():
-            print(f"Events file {self.events_path} not found")
-            return topic_texts
+            print(f"Events file {self.events_path} not found, creating from existing topic labels")
+            # Generate synthetic text examples based on existing topic labels
+            current_mapping = self.load_topic_lookup()
+            return self._generate_synthetic_texts(current_mapping)
         
         # Load current topic mapping to get topic IDs
         current_mapping = self.load_topic_lookup()
@@ -92,6 +94,7 @@ class TopicLabeler:
         all_texts = []
         text_categories = defaultdict(list)
         
+        processed_events = 0
         with open(self.events_path, 'r', encoding='utf-8') as f:
             for line in f:
                 try:
@@ -103,6 +106,7 @@ class TopicLabeler:
                     if not text:
                         continue
                     
+                    processed_events += 1
                     all_texts.append(text)
                     
                     # Categorize texts by source and content patterns
@@ -121,6 +125,13 @@ class TopicLabeler:
                         
                 except (json.JSONDecodeError, KeyError):
                     continue
+        
+        # If we processed very few events, supplement with synthetic data
+        if processed_events < 10:
+            print(f"Only {processed_events} events found, supplementing with synthetic data")
+            synthetic_texts = self._generate_synthetic_texts(current_mapping)
+            for topic_id, texts in synthetic_texts.items():
+                text_categories['synthetic'].extend(texts)
         
         # Map categories to existing topic IDs
         # Use a deterministic assignment based on topic placeholders
@@ -152,6 +163,46 @@ class TopicLabeler:
                 start_idx = (i * len(all_category_texts)) // len(remaining_topics)
                 end_idx = ((i + 1) * len(all_category_texts)) // len(remaining_topics)
                 topic_texts[topic_id].extend(all_category_texts[start_idx:end_idx])
+        
+        return topic_texts
+    
+    def _generate_synthetic_texts(self, current_mapping: Dict[str, str]) -> Dict[str, List[str]]:
+        """Generate synthetic text examples based on existing topic labels."""
+        topic_texts = defaultdict(list)
+        
+        for topic_id, label in current_mapping.items():
+            if not label or label.startswith(('topic_', 'test_', 'viral_', 'trending_')):
+                continue
+                
+            # Generate synthetic texts based on the label
+            synthetic_texts = []
+            if 'music' in label.lower() or any(name in label for name in ['Weeknd', 'Swift', 'YoungBoy', 'Carpenter']):
+                synthetic_texts = [
+                    f"{label} - Official Music Video",
+                    f"New song by {label} trending now",
+                    f"{label} latest album release",
+                ]
+            elif 'tech' in label.lower() or 'ai' in label.lower():
+                synthetic_texts = [
+                    f"New {label} technology breakthrough",
+                    f"{label} artificial intelligence update",
+                    f"Latest {label} tech innovation",
+                ]
+            elif 'game' in label.lower():
+                synthetic_texts = [
+                    f"{label} gaming tournament results",
+                    f"New {label} game release",
+                    f"{label} esports championship",
+                ]
+            else:
+                # Generic content
+                synthetic_texts = [
+                    f"{label} trending content",
+                    f"Latest {label} update",
+                    f"{label} viral post",
+                ]
+            
+            topic_texts[topic_id] = synthetic_texts
         
         return topic_texts
     

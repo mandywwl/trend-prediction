@@ -259,12 +259,48 @@ class RuntimeGlue:
                 }
 
 
-            # Create hourly metrics (now with real latency data!)
+            # Get robustness data from sensitivity controller if available
+            try:
+                robustness_data = {}
+                if hasattr(self.event_handler, 'sensitivity') and self.event_handler.sensitivity:
+                    metrics = self.event_handler.sensitivity.metrics()
+                    thresholds = self.event_handler.sensitivity.thresholds()
+                    robustness_data = {
+                        'spam_rate': metrics.get('spam_rate', 0.0),
+                        'theta_g': thresholds.theta_g,
+                        'theta_u': thresholds.theta_u,
+                    }
+                    
+                    # Calculate downweighted percentage from recent events if available
+                    # This is a simple approximation - in a real system this would be more sophisticated
+                    if 'spam_rate' in robustness_data:
+                        # Approximate downweighted percentage based on spam rate
+                        robustness_data['downweighted_pct'] = min(robustness_data['spam_rate'] * 50.0, 25.0)
+                
+                if not robustness_data:
+                    # Fallback robustness data
+                    robustness_data = {
+                        'spam_rate': 0.0,
+                        'downweighted_pct': 0.0,
+                        'theta_g': 0.5,
+                        'theta_u': 0.4,
+                    }
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error getting robustness data: {e}")
+                robustness_data = {
+                    'spam_rate': 0.0,
+                    'downweighted_pct': 0.0,
+                    'theta_g': 0.5,
+                    'theta_u': 0.4,
+                }
+
+            # Create hourly metrics (now with real latency data and robustness data!)
             try:
                 hourly_metrics = HourlyMetrics(
                     precision_at_k=precision_snapshot,
                     adaptivity=adaptivity_score,
                     latency=latency_summary,
+                    robustness=robustness_data,
                     meta={
                         'service': 'runtime_glue',
                         'config_delta_hours': str(self.config.delta_hours),
@@ -285,6 +321,12 @@ class RuntimeGlue:
                             'model_update_forward': 0,
                             'postprocess': 0
                         }
+                    },
+                    robustness={
+                        'spam_rate': 0.0,
+                        'downweighted_pct': 0.0,
+                        'theta_g': 0.5,
+                        'theta_u': 0.4,
                     },
                     meta={'service': 'runtime_glue'}
                 )

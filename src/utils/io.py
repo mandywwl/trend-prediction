@@ -46,6 +46,9 @@ class LatencyTimer:
         if self.start_time is not None:
             end_time = time.perf_counter()
             self.total_duration_ms = int((end_time - self.start_time) * 1000)
+        else:
+            # Fallback if start_time was never set
+            self.total_duration_ms = 0
     
     def start_stage(self, stage_name: str):
         """Start timing a specific stage."""
@@ -84,10 +87,11 @@ class LatencyAggregator:
         # Skip None values to avoid errors in percentile calculations
         if total_ms is not None:
             self.measurements.append(total_ms)
-            self.stage_measurements['ingest'].append(stage_ms['ingest'])
-            self.stage_measurements['preprocess'].append(stage_ms['preprocess'])
-            self.stage_measurements['model_update_forward'].append(stage_ms['model_update_forward'])
-            self.stage_measurements['postprocess'].append(stage_ms['postprocess'])
+            # Ensure stage measurements are never None
+            self.stage_measurements['ingest'].append(stage_ms.get('ingest', 0) or 0)
+            self.stage_measurements['preprocess'].append(stage_ms.get('preprocess', 0) or 0)
+            self.stage_measurements['model_update_forward'].append(stage_ms.get('model_update_forward', 0) or 0)
+            self.stage_measurements['postprocess'].append(stage_ms.get('postprocess', 0) or 0)
     
     def get_summary(self) -> LatencySummary:
         """Calculate latency summary with SLO comparison."""
@@ -98,16 +102,30 @@ class LatencyAggregator:
                 per_stage_ms=StageMs(ingest=0, preprocess=0, model_update_forward=0, postprocess=0)
             )
         
-        # Calculate percentiles
-        median_ms = int(np.percentile(self.measurements, 50))
-        p95_ms = int(np.percentile(self.measurements, 95))
+        # Filter out any None values that might have slipped through (defensive programming)
+        clean_measurements = [m for m in self.measurements if m is not None]
+        if not clean_measurements:
+            return LatencySummary(
+                median_ms=0,
+                p95_ms=0,
+                per_stage_ms=StageMs(ingest=0, preprocess=0, model_update_forward=0, postprocess=0)
+            )
         
-        # Calculate per-stage means
+        # Calculate percentiles
+        median_ms = int(np.percentile(clean_measurements, 50))
+        p95_ms = int(np.percentile(clean_measurements, 95))
+        
+        # Calculate per-stage means (filter None values from stage measurements too)
+        def safe_mean(measurements_list):
+            clean_list = [m for m in measurements_list if m is not None]
+            return int(np.mean(clean_list)) if clean_list else 0
+        
         per_stage_ms = StageMs(
-            ingest=int(np.mean(self.stage_measurements['ingest'])) if self.stage_measurements['ingest'] else 0,
-            preprocess=int(np.mean(self.stage_measurements['preprocess'])) if self.stage_measurements['preprocess'] else 0,
-            model_update_forward=int(np.mean(self.stage_measurements['model_update_forward'])) if self.stage_measurements['model_update_forward'] else 0,
-            postprocess=int(np.mean(self.stage_measurements['postprocess'])) if self.stage_measurements['postprocess'] else 0
+            ingest=safe_mean(self.stage_measurements['ingest']),
+            preprocess=safe_mean(self.stage_measurements['preprocess']),
+            model_update_forward=safe_mean(self.stage_measurements['model_update_forward']),
+            postprocess=safe_mean(self.stage_measurements['postprocess'])
+        )
         )
         
         return LatencySummary(

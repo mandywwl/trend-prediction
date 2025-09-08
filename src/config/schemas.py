@@ -40,10 +40,18 @@ class PrecisionAtKSnapshot(TypedDict):
     support: int
 
 
+class RobustnessSummary(TypedDict, total=False):
+    spam_rate: float
+    downweighted_pct: float
+    theta_g: float
+    theta_u: float
+
+
 class HourlyMetrics(TypedDict):
     precision_at_k: PrecisionAtKSnapshot
     adaptivity: float
     latency: LatencySummary
+    robustness: RobustnessSummary  # Add robustness data
     meta: Dict[str, str]  # {"generated_at": ISO8601}
 
 
