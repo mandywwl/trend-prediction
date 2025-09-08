@@ -113,7 +113,7 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    for epoch in range(3):  # quick testing; increase for actual training
+    for epoch in range(8):  # TODO: Increase for actual training
         model.reset_memory()
         total_loss = 0.0
 
@@ -122,10 +122,8 @@ if __name__ == "__main__":
             dst_i = dst[i].unsqueeze(0).long()
             t_i = t[i].unsqueeze(0)
             edge_feat = edge_attr[i].unsqueeze(0)
-            label = torch.tensor([1])  # dummy positive class
+            label = torch.tensor([1])  # TODO: replace with actual label
 
-            # logits_single = model(src_i, dst_i, t_i, edge_feat)
-            # logits = torch.cat([torch.zeros_like(logits_single), logits_single], dim=-1)
             # TGN decoder outputs [emergence_logit, growth, diffusion].
             # For the classification loss we only want a single binary logit.
             logit_pos = model(src_i, dst_i, t_i, edge_feat)[..., 0:1]   # (B,1)

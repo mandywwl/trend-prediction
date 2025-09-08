@@ -35,8 +35,12 @@ def build_tgn(
         return output_path
 
     # Lazy load tokenizer/model to avoid importing heavy assets on module import
-    tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
-    model = DistilBertModel.from_pretrained("distilbert-base-uncased")
+    try:
+        tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
+        model = DistilBertModel.from_pretrained("distilbert-base-uncased")
+    except Exception as e:
+        print(f"[preprocess] Error loading DistilBERT model: {e}")
+        return None
 
     node2id: dict[str, int] = {}
     node_features: dict[int, np.ndarray] = {}

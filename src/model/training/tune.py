@@ -1,10 +1,7 @@
 """Hyperparameter tuning for TGN model using Optuna.
 
 This module defines an Optuna objective that performs rolling
-week-based cross-validation over the temporal edge dataset.  Each
-trial samples hyperparameters from the search space defined in
-section \u00a73.7 of the specification and logs the evaluated
-configurations.  The best configuration is written to
+week-based cross-validation over the temporal edge dataset. The best configuration is written to
 ``tuning_log.json`` in this directory.
 """
 
@@ -115,7 +112,7 @@ def _train_and_eval(params: dict[str, Any], train_idx: np.ndarray, val_idx: np.n
         dst_i = dst[i].unsqueeze(0)
         t_i = t[i].unsqueeze(0)
         edge_feat = edge_attr[i].unsqueeze(0)
-        label = torch.tensor([1.0])  # placeholder label
+        label = torch.tensor([1.0])  # TODO: replace with actual label
 
         out = model(src_i, dst_i, t_i, edge_feat)
         loss = criterion(out.view(-1), label)
@@ -150,7 +147,7 @@ def objective(trial: "optuna.trial.Trial") -> float:
     """Optuna objective with the search space from \u00a73.7."""
 
     params = {
-        # Search space replicating section \u00a73.7
+        # Search space
         "memory_dim": trial.suggest_int("memory_dim", 64, 256, step=64),
         "time_dim": trial.suggest_int("time_dim", 4, 32, step=4),
         "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),

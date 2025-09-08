@@ -25,7 +25,7 @@ from config.config import (
     DEFAULT_TEXT_EMB_POLICY,
 )
 from config.schemas import Event
-from config.base import DEFFAULT_EDGE_DIM
+from config.base import DEFAULT_EDGE_DIM
 from model.core.tgn import TGNModel
 from utils.datetime import timestamp_to_seconds
 from utils.io import ensure_dir
@@ -74,7 +74,7 @@ class TGNInferenceService:
         device: str | torch.device = "cpu",
         memory_dim: int = 100,
         time_dim: int = 10,
-        edge_feat_dim: int = DEFFAULT_EDGE_DIM,
+        edge_feat_dim: int = DEFAULT_EDGE_DIM,
         log_dir: str | Path = "datasets",
     ) -> None:
         """Initialize the inference service and load a checkpoint if provided.

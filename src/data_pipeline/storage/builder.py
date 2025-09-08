@@ -89,6 +89,7 @@ class GraphBuilder:
         return self.node_map[node]
 
     def _infer_type(self, node: str) -> str:
+
         if node.startswith("h_"):
             return "hashtag"
         if node.startswith("yt_v"):

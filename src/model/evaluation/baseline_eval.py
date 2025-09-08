@@ -51,9 +51,8 @@ def evaluate_baselines(
         evaluator.record_predictions(ts_iso=ts_iso, items=preds)
         for tid in emergent_topics:
             evaluator.record_event(topic_id=tid, user_id=f"u{tid}", ts_iso=ts_iso)
-        # Finalize by pushing time forward so entries mature.
-        # ``PrecisionAtKOnline`` uses DELTA_HOURS=2 by default, so advance
-        # beyond that horizon to ensure support > 0.
+        # TODO: Finalize by pushing time forward so entries mature.
+        # `PrecisionAtKOnline` uses DELTA_HOURS=2 by default, so advance beyond that horizon to ensure support > 0.
         now = datetime.fromisoformat(ts_iso) + timedelta(hours=3)
         evaluator.record_event(
             topic_id=999, user_id="noop", ts_iso=now.isoformat(timespec="seconds")
