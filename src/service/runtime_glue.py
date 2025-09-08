@@ -47,6 +47,7 @@ class RuntimeConfig:
     predictions_cache_path: str = PREDICTIONS_CACHE_PATH
     topic_lookup_path: str = TOPIC_LOOKUP_PATH
     update_interval_sec: int = 60  # Update metrics every minute
+    enable_background_timer: bool = True  # Enable background dashboard updates
     
     @classmethod
     def from_yaml(cls, yaml_path: Optional[str] = None) -> 'RuntimeConfig':
@@ -65,6 +66,7 @@ class RuntimeConfig:
             predictions_cache_path=runtime_config.get('predictions_cache_path', PREDICTIONS_CACHE_PATH),
             topic_lookup_path=runtime_config.get('topic_lookup_path', TOPIC_LOOKUP_PATH),
             update_interval_sec=runtime_config.get('update_interval_sec', 60),
+            enable_background_timer=runtime_config.get('enable_background_timer', True),
         )
 
 
@@ -126,6 +128,10 @@ class RuntimeGlue:
     
     def _start_background_timer(self):
         """Start background timer for periodic dashboard updates."""
+        if not self.config.enable_background_timer:
+            print("Background timer disabled by configuration")
+            return
+        
         if self._timer_running or self._timer_thread is not None:
             return
         

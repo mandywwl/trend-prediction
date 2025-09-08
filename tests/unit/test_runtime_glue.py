@@ -254,5 +254,131 @@ def test_runtime_glue_no_magic_numbers():
     assert glue.config.update_interval_sec == 90
 
 
+def test_background_timer_starts_and_stops():
+    """Test that background timer can be started and stopped properly."""
+    handler = MockEventHandler()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config = RuntimeConfig(
+            metrics_snapshot_dir=str(Path(temp_dir) / "metrics"),
+            predictions_cache_path=str(Path(temp_dir) / "cache.json"),
+            update_interval_sec=1  # Short interval for testing
+        )
+        
+        glue = RuntimeGlue(handler, config)
+        
+        # Initially no timer should be running
+        assert not glue._timer_running
+        assert glue._timer_thread is None
+        
+        # Start timer
+        glue._start_background_timer()
+        assert glue._timer_running
+        assert glue._timer_thread is not None
+        assert glue._timer_thread.is_alive()
+        
+        # Stop timer
+        glue._stop_background_timer()
+        assert not glue._timer_running
+        
+        # Allow thread to finish
+        import time
+        time.sleep(0.1)
+
+
+def test_background_timer_updates_cache_without_events():
+    """Test that background timer updates cache even without processing events."""
+    import time
+    
+    handler = MockEventHandler()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        cache_path = Path(temp_dir) / "cache.json"
+        
+        config = RuntimeConfig(
+            metrics_snapshot_dir=str(Path(temp_dir) / "metrics"),
+            predictions_cache_path=str(cache_path),
+            update_interval_sec=1  # Update every second for testing
+        )
+        
+        glue = RuntimeGlue(handler, config)
+        
+        # Add mock predictions to buffer
+        glue._predictions_buffer = [
+            [
+                {"topic_id": 1, "score": 0.9},
+                {"topic_id": 2, "score": 0.7}
+            ]
+        ]
+        
+        try:
+            # Start background timer
+            glue._start_background_timer()
+            
+            # Wait for at least one update cycle
+            time.sleep(1.5)
+            
+            # Cache should have been updated by background timer
+            assert cache_path.exists()
+            
+            with open(cache_path, 'r') as f:
+                cache_data = json.load(f)
+            
+            assert 'last_updated' in cache_data
+            assert 'items' in cache_data
+            assert len(cache_data['items']) > 0
+            
+        finally:
+            # Clean up
+            glue.set_shutdown()
+
+
+def test_background_timer_thread_safety():
+    """Test that concurrent calls to _update_metrics_and_cache are handled safely."""
+    import threading
+    import time
+    
+    handler = MockEventHandler()
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config = RuntimeConfig(
+            metrics_snapshot_dir=str(Path(temp_dir) / "metrics"),
+            predictions_cache_path=str(Path(temp_dir) / "cache.json"),
+            update_interval_sec=0  # Always allow updates for testing
+        )
+        
+        glue = RuntimeGlue(handler, config)
+        
+        # Add mock predictions to buffer
+        glue._predictions_buffer = [
+            [
+                {"topic_id": 1, "score": 0.5}
+            ]
+        ]
+        
+        # Track if any errors occur during concurrent access
+        errors = []
+        
+        def update_metrics():
+            try:
+                glue._update_metrics_and_cache()
+            except Exception as e:
+                errors.append(e)
+        
+        # Start multiple threads trying to update metrics simultaneously
+        threads = []
+        for _ in range(5):
+            thread = threading.Thread(target=update_metrics)
+            threads.append(thread)
+            thread.start()
+        
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+        
+        # Should have no errors due to thread safety
+        assert len(errors) == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
