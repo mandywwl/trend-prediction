@@ -112,11 +112,58 @@ class RuntimeGlue:
         self._shutdown_event = threading.Event()
         self._last_update = datetime.now(timezone.utc)
         self._predictions_buffer = []  # Buffer recent predictions for cache
+        
+        # Background timer for dashboard updates
+        self._timer_thread = None
+        self._timer_running = False
+        self._update_lock = threading.Lock()  # Prevent concurrent updates
     
     def set_shutdown(self):
         """Set shutdown event (called externally by main orchestrator)."""
         self._shutdown_event.set()
         self._running = False
+        self._stop_background_timer()
+    
+    def _start_background_timer(self):
+        """Start background timer for periodic dashboard updates."""
+        if self._timer_running or self._timer_thread is not None:
+            return
+        
+        self._timer_running = True
+        self._timer_thread = threading.Thread(target=self._timer_loop, daemon=True)
+        self._timer_thread.start()
+        print(f"Started background timer for dashboard updates (interval: {self.config.update_interval_sec}s)")
+    
+    def _stop_background_timer(self):
+        """Stop background timer."""
+        if not self._timer_running:
+            return
+        
+        self._timer_running = False
+        if self._timer_thread and self._timer_thread.is_alive():
+            self._timer_thread.join(timeout=2.0)
+        self._timer_thread = None
+        print("Stopped background timer")
+    
+    def _timer_loop(self):
+        """Background timer loop for periodic dashboard updates."""
+        while self._timer_running and not self._shutdown_event.is_set():
+            try:
+                # Sleep for the update interval, but check shutdown periodically
+                for _ in range(self.config.update_interval_sec):
+                    if not self._timer_running or self._shutdown_event.is_set():
+                        break
+                    time.sleep(1.0)
+                
+                # Update metrics and cache if still running and due for update
+                if self._timer_running and not self._shutdown_event.is_set():
+                    if self._should_update_metrics():
+                        self._update_metrics_and_cache()
+                    
+            except Exception as e:
+                print(f"Error in background timer: {e}")
+                # Continue the loop despite errors
+                time.sleep(5.0)  # Wait a bit before retrying
     
     def _should_update_metrics(self) -> bool:
         """Check if it's time to update metrics (every minute)."""
@@ -125,46 +172,47 @@ class RuntimeGlue:
     
     def _update_metrics_and_cache(self):
         """Update rolling P@K, write hourly snapshots, and update predictions cache."""
-        now = datetime.now(timezone.utc)
+        with self._update_lock:
+            now = datetime.now(timezone.utc)
 
-        # Get rolling precision scores
-        precision_snapshot = self.precision_tracker.rolling_hourly_scores()
-        adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
-        
-        # Create hourly metrics (simplified - in real impl would include latency data)
-        hourly_metrics = HourlyMetrics(
-            precision_at_k=precision_snapshot,
-            adaptivity=adaptivity_score,
-            latency={
-                'median_ms': 0,  # Would be populated from LatencyAggregator
-                'p95_ms': 0,
-                'per_stage_ms': {
-                    'ingest': 0,
-                    'preprocess': 0,
-                    'model_update_forward': 0,
-                    'postprocess': 0
+            # Get rolling precision scores
+            precision_snapshot = self.precision_tracker.rolling_hourly_scores()
+            adaptivity_score = self.precision_tracker.rolling_adaptivity_score()
+            
+            # Create hourly metrics (simplified - in real impl would include latency data)
+            hourly_metrics = HourlyMetrics(
+                precision_at_k=precision_snapshot,
+                adaptivity=adaptivity_score,
+                latency={
+                    'median_ms': 0,  # Would be populated from LatencyAggregator
+                    'p95_ms': 0,
+                    'per_stage_ms': {
+                        'ingest': 0,
+                        'preprocess': 0,
+                        'model_update_forward': 0,
+                        'postprocess': 0
+                    }
+                },
+                meta={
+                    'service': 'runtime_glue',
+                    'config_delta_hours': str(self.config.delta_hours),
+                    'config_window_min': str(self.config.window_min)
                 }
-            },
-            meta={
-                'service': 'runtime_glue',
-                'config_delta_hours': str(self.config.delta_hours),
-                'config_window_min': str(self.config.window_min)
-            }
-        )
-        
-        # Write hourly snapshot
-        hour_bucket = get_hour_bucket(now)
-        try:
-            self.metrics_writer.write_hourly_snapshot(hour_bucket, hourly_metrics)
-            print(f"[{now.isoformat()}] Wrote hourly metrics snapshot for {hour_bucket}")
-        except Exception as e:
-            print(f"[{now.isoformat()}] Error writing metrics snapshot: {e}")
-        
-        # Update predictions cache
-        self._update_predictions_cache(now)
-        
-        # Update last update time
-        self._last_update = now
+            )
+            
+            # Write hourly snapshot
+            hour_bucket = get_hour_bucket(now)
+            try:
+                self.metrics_writer.write_hourly_snapshot(hour_bucket, hourly_metrics)
+                print(f"[{now.isoformat()}] Wrote hourly metrics snapshot for {hour_bucket}")
+            except Exception as e:
+                print(f"[{now.isoformat()}] Error writing metrics snapshot: {e}")
+            
+            # Update predictions cache
+            self._update_predictions_cache(now)
+            
+            # Update last update time
+            self._last_update = now
     
     def _update_predictions_cache(self, now: datetime):
         """Update the predictions cache with recent predictions."""
@@ -274,6 +322,9 @@ class RuntimeGlue:
         self._running = True
         print(f"Starting runtime glue with config: {asdict(self.config)}")
         
+        # Start background timer for periodic dashboard updates
+        self._start_background_timer()
+        
         try:
             for event in event_stream:
                 if not self._running or self._shutdown_event.is_set():
@@ -285,7 +336,7 @@ class RuntimeGlue:
                 # Record for metrics tracking
                 self._record_event_for_metrics(event, scores)
                 
-                # Check if it's time to update metrics
+                # Check if it's time to update metrics (still check during event processing)
                 if self._should_update_metrics():
                     self._update_metrics_and_cache()
                 
@@ -300,6 +351,9 @@ class RuntimeGlue:
     def _shutdown(self):
         """Perform graceful shutdown operations."""
         print("Performing graceful shutdown...")
+        
+        # Stop background timer first
+        self._stop_background_timer()
         
         # Final metrics update
         try:
