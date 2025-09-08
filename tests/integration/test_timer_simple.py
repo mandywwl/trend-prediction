@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Simple test runner that doesn't require pytest dependencies."""
 
 import sys

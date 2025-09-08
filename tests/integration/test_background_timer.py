@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Simple test script to verify background timer functionality.
 This script tests that the dashboard updates even when there are no events.

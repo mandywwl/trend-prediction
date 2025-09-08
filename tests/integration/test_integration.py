@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Integration test to verify main.py and RuntimeGlue work together with background timer.
 This simulates the scenario where event collectors finish but the service keeps running.
