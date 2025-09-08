@@ -368,9 +368,14 @@ class IntegratedEventHandler(EventHandler):
             try:
                 with open(self.topic_lookup_path, 'r', encoding='utf-8') as f:
                     topic_mapping = json.load(f)
-                    # Get all existing topic IDs (convert to integers for scoring)
-                    self.topic_ids = [int(tid) for tid in topic_mapping.keys()]
-                    self.logger.info(f"Loaded {len(self.topic_ids)} existing topic IDs from topic_lookup.json")
+                    # Get all existing topic IDs whose labels are non-numeric
+                    self.topic_ids = [
+                        int(tid) for tid, label in topic_mapping.items()
+                        if not str(label).isdigit()
+                    ]
+                    self.logger.info(
+                        f"Loaded {len(self.topic_ids)} existing topic IDs from topic_lookup.json"
+                    )
             except Exception as e:
                 self.logger.warning(f"Failed to load topic lookup: {e}")
         
