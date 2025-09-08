@@ -7,6 +7,7 @@ Main dashboard for monitoring live trend predictions and system health.
 import streamlit as st
 import sys
 from pathlib import Path
+import time
 
 # Add src to Python path for imports
 src_path = Path(__file__).parent.parent / "src"
@@ -72,8 +73,20 @@ def main():
     if auto_refresh:
         # Streamlit auto-refresh using query params or timer
         st.sidebar.info("Dashboard will refresh automatically every 30 seconds")
-        # Note: For production, you might want to implement actual auto-refresh
-        # using st.rerun() with a timer or query parameter polling
+        # Implement auto-refresh using a session-based timer
+        interval_s = 30
+        now = time.time()
+        last = st.session_state.get("_last_auto_refresh_ts")
+        if last is None:
+            # Initialize timer on first load to avoid immediate rerun
+            st.session_state["_last_auto_refresh_ts"] = now
+        else:
+            elapsed = now - last
+            remaining = max(0, int(interval_s - elapsed))
+            st.sidebar.caption(f"Next refresh in {remaining}s")
+            if elapsed >= interval_s:
+                st.session_state["_last_auto_refresh_ts"] = now
+                st.rerun()
     
     # Refresh button
     if st.sidebar.button("🔄 Refresh Now"):
