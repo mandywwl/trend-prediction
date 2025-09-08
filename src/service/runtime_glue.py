@@ -23,6 +23,7 @@ from config.config import (
     K_OPTIONS,
     METRICS_SNAPSHOT_DIR,
     PREDICTIONS_CACHE_PATH,
+    TOPIC_LOOKUP_PATH,
 )
 from config.schemas import (
     Event,
@@ -44,6 +45,7 @@ class RuntimeConfig:
     k_options: tuple = K_OPTIONS
     metrics_snapshot_dir: str = METRICS_SNAPSHOT_DIR
     predictions_cache_path: str = PREDICTIONS_CACHE_PATH
+    topic_lookup_path: str = TOPIC_LOOKUP_PATH
     update_interval_sec: int = 60  # Update metrics every minute
     
     @classmethod
@@ -61,6 +63,7 @@ class RuntimeConfig:
             k_options=tuple(runtime_config.get('k_options', K_OPTIONS)),
             metrics_snapshot_dir=runtime_config.get('metrics_snapshot_dir', METRICS_SNAPSHOT_DIR),
             predictions_cache_path=runtime_config.get('predictions_cache_path', PREDICTIONS_CACHE_PATH),
+            topic_lookup_path=runtime_config.get('topic_lookup_path', TOPIC_LOOKUP_PATH),
             update_interval_sec=runtime_config.get('update_interval_sec', 60),
         )
 
@@ -92,6 +95,17 @@ class RuntimeGlue:
         # Ensure output directories exist
         ensure_dir(self.config.metrics_snapshot_dir)
         ensure_dir(Path(self.config.predictions_cache_path).parent)
+        ensure_dir(Path(self.config.topic_lookup_path).parent)
+
+        self._topic_lookup_path = Path(self.config.topic_lookup_path)
+        if self._topic_lookup_path.exists():
+            try:
+                with open(self._topic_lookup_path, 'r', encoding='utf-8') as f:
+                    self._topic_lookup = json.load(f)
+            except Exception:
+                self._topic_lookup = {}
+        else:
+            self._topic_lookup = {}
         
         # Runtime state
         self._running = False
@@ -191,15 +205,29 @@ class RuntimeGlue:
                 temp_path.replace(cache_path)
                 
                 print(f"[{now.isoformat()}] Updated predictions cache with {len(cache_data['items'])} items")
-        
+
         except Exception as e:
             print(f"[{now.isoformat()}] Error updating predictions cache: {e}")
-    
+
+    def _update_topic_lookup(self, topic_id: int, label: str) -> None:
+        """Persist mapping from topic_id to original label."""
+        if not label:
+            return
+        try:
+            key = str(topic_id)
+            if self._topic_lookup.get(key) != label:
+                self._topic_lookup[key] = label
+                with open(self._topic_lookup_path, 'w', encoding='utf-8') as f:
+                    json.dump(self._topic_lookup, f, indent=2)
+        except Exception as e:
+            print(f"[{datetime.now().isoformat()}] Error updating topic lookup: {e}")
+
     def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]):
         """Record event and scores for metrics tracking."""
         try:
             # Extract topic_id and user_id from event
             topic_id = hash(event.get('event_id', '')) % 1000000  # Simple hash for demo
+            self._update_topic_lookup(topic_id, event.get('event_id', ''))
             user_id = event.get('actor_id', 'unknown')
             ts_iso = event.get('ts_iso', datetime.now(timezone.utc).isoformat())
             
@@ -218,6 +246,7 @@ class RuntimeGlue:
                         # Convert string topic names to integer IDs for the metrics system
                         topic_id = abs(hash(key)) % 1000000
                         predictions.append((topic_id, score))
+                        self._update_topic_lookup(topic_id, key)
                 
                 if predictions:
                     self.precision_tracker.record_predictions(
