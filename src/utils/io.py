@@ -126,7 +126,6 @@ class LatencyAggregator:
             model_update_forward=safe_mean(self.stage_measurements['model_update_forward']),
             postprocess=safe_mean(self.stage_measurements['postprocess'])
         )
-        )
         
         return LatencySummary(
             median_ms=median_ms,
