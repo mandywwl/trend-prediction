@@ -16,6 +16,7 @@ from config.config import (
     PREDICTIONS_CACHE_PATH,
     DELTA_HOURS,
     K_OPTIONS,
+    TOPIC_LOOKUP_PATH,
 )
 from config.schemas import PredictionsCache, CacheItem
 
@@ -35,6 +36,15 @@ def _load_predictions_cache(cache_path: str | os.PathLike[str]) -> Optional[Pred
     except Exception as e:
         st.error(f"Error loading predictions cache: {e}")
         return None
+
+
+def _load_topic_lookup(path: str | os.PathLike[str]) -> Dict[str, str]:
+    """Load topic ID to label mapping."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def _format_countdown(delta_hours: int, prediction_time: str) -> str:
@@ -92,9 +102,10 @@ def render_panel() -> Dict[str, Any]:
         Dict containing panel state and metrics for external monitoring.
     """
     st.header("📈 Live Top-K Predictions")
-    
+
     # Load predictions cache
     cache = _load_predictions_cache(PREDICTIONS_CACHE_PATH)
+    topic_lookup = _load_topic_lookup(TOPIC_LOOKUP_PATH)
     
     if cache is None:
         st.warning("⚠️ No predictions cache found. Check if predictions are being generated.")
@@ -145,7 +156,7 @@ def render_panel() -> Dict[str, Any]:
     with col_rank:
         st.write("**Rank**")
     with col_topic:
-        st.write("**Topic ID**")
+        st.write("**Topic**")
     with col_score:
         st.write("**Score**")
     with col_countdown:
@@ -156,13 +167,17 @@ def render_panel() -> Dict[str, Any]:
         topic_id = pred.get('topic_id', 'Unknown')
         score = pred.get('score', 0.0)
         countdown = _format_countdown(DELTA_HOURS, prediction_time)
-        
+
         col_rank, col_topic, col_score, col_countdown = st.columns([1, 2, 2, 3])
-        
+
         with col_rank:
             st.write(f"#{i}")
         with col_topic:
-            st.write(f"`{topic_id}`")
+            label = topic_lookup.get(str(topic_id))
+            if label:
+                st.write(f"{label} (`{topic_id}`)")
+            else:
+                st.write(f"`{topic_id}`")
         with col_score:
             st.metric("", f"{score:.3f}")
         with col_countdown:

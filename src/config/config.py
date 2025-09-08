@@ -37,6 +37,7 @@ DEFAULT_TEXT_EMB_POLICY: str = "zeros"  # "zeros" | "mean" | "learned_unknown"
 # IO paths (keep existing if already defined elsewhere)
 METRICS_SNAPSHOT_DIR: str = "datasets/metrics_hourly"
 PREDICTIONS_CACHE_PATH: str = "datasets/predictions_cache.json"
+TOPIC_LOOKUP_PATH: str = "datasets/topic_lookup.json"
 
 # Regions
 REGION_DEFAULTS: tuple[str, ...] = ("SG",)
