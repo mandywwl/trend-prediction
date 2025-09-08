@@ -128,13 +128,6 @@ Top-K Live Predictions:
 3. **Label Construction**: Creates concise, meaningful labels from extracted features
 4. **Fallback Handling**: Provides generic labels when specific patterns aren't found
 
-### Quality Assurance
-
-- Filters out common stopwords and generic terms
-- Limits label length for dashboard compatibility  
-- Provides graceful fallbacks for edge cases
-- Maintains consistency across similar content types
-
 ## Testing
 
 ### Unit Tests

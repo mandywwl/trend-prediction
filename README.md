@@ -304,4 +304,4 @@ The service doesn't expose REST APIs directly but uses an event-driven architect
 
 ## 📃 Documentation
 
-TOPIC_LABELING.md: The Topic Labeling Pipeline automatically generates meaningful topic names by analyzing textual examples from social media events, replacing placeholder strings in `datasets/topic_lookup.json` with semantic labels derived from content analysis.
+**TOPIC_LABELING.md**: The Topic Labeling Pipeline automatically generates meaningful topic names by analyzing textual examples from social media events, replacing placeholder strings in `datasets/topic_lookup.json` with semantic labels derived from content analysis.

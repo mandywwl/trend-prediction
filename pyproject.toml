@@ -66,6 +66,7 @@ dependencies = [
     "rsa~=4.9",
     "safetensors~=0.5",
     "scipy~=1.16",
+    "scikit-learn~=1.5",
     "setuptools>=80",
     "six~=1.17",
     "streamlit~=1.49",
