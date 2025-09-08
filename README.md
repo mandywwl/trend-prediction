@@ -160,6 +160,9 @@ python tests/integration/run_ingestion_sim.py
 ```bash
 # Build TGN edge file from collected events
 python -c "from data_pipeline.processors.preprocessing import build_tgn; build_tgn()"
+
+# Generate meaningful topic labels from textual examples
+python scripts/update_topic_labels.py
 ```
 
 **Test model training:**
