@@ -271,76 +271,110 @@ class TopicLabeler:
             return f"topic_{topic_id[-3:]}"
         
         try:
-            # Extract keywords from all texts
-            keywords = self.extract_keywords_from_cluster(cleaned_texts)
+            # First pass: Look for specific recognizable patterns
+            text_sample = " ".join(cleaned_texts[:10]).lower()
             
-            if keywords:
-                # Clean up keywords and create label
-                label_words = []
-                seen_words = set()
-                
-                for keyword in keywords:
-                    # Clean keyword
-                    clean_keyword = re.sub(r'[^a-zA-Z0-9\s]', '', keyword).strip()
-                    if not clean_keyword or len(clean_keyword) < 3:
-                        continue
-                        
-                    # Split compound keywords and take the most meaningful part
-                    word_parts = clean_keyword.lower().split()
-                    for part in word_parts:
-                        if (len(part) >= 3 and 
-                            part not in seen_words and 
-                            part not in ['the', 'and', 'for', 'with', 'video', 'official', 'new'] and
-                            len(label_words) < self.max_label_words):
-                            label_words.append(part.capitalize())
-                            seen_words.add(part)
-                            break
-                
-                if label_words:
-                    return " ".join(label_words)
-            
-            # Fallback: try to extract meaningful patterns from raw texts
+            # Extract artist/performer names from music content
             artist_names = set()
             song_titles = set()
-            brand_names = set()
+            content_types = []
             
-            for text in cleaned_texts[:10]:
-                # Look for music patterns: "Artist - Song"
-                music_match = re.search(r'^([^-\[\(]+)\s*[-\[\(]', text)
-                if music_match:
-                    artist = music_match.group(1).strip()
-                    if len(artist) <= 20 and not any(skip in artist.lower() for skip in ['official', 'video', 'ft']):
-                        artist_names.add(artist.title())
+            for text in cleaned_texts[:15]:
+                original_text = text
+                text_lower = text.lower()
                 
-                # Look for YouTube/content patterns
-                if 'Official' in text and ('Video' in text or 'Music' in text):
-                    # Extract the main subject before "Official"
-                    main_part = text.split('Official')[0].strip()
-                    if main_part and len(main_part) <= 30:
-                        main_words = main_part.split()[:2]  # Take first 2 words
-                        if main_words:
-                            brand_names.add(" ".join(main_words).title())
+                # Music video patterns
+                if any(pattern in text_lower for pattern in ['official video', 'music video', 'vevo']):
+                    # Extract artist name before " - " or " |"
+                    for sep in [' - ', ' | ', ' (Official']:
+                        if sep in original_text:
+                            potential_artist = original_text.split(sep)[0].strip()
+                            if (len(potential_artist) <= 30 and 
+                                not any(skip in potential_artist.lower() for skip in 
+                                       ['youtube', 'official', 'video', 'music', 'ft.', 'feat'])):
+                                artist_names.add(potential_artist)
+                                break
+                
+                # Sports content
+                if any(term in text_lower for term in ['nfl', 'nba', 'soccer', 'football', 'baseball', 'basketball']):
+                    content_types.append('Sports')
+                
+                # Gaming content  
+                if any(term in text_lower for term in ['game', 'gaming', 'esports', 'tournament', 'gameplay']):
+                    content_types.append('Gaming')
+                    
+                # Tech content
+                if any(term in text_lower for term in ['ai', 'tech', 'software', 'app', 'device', 'iphone', 'android']):
+                    content_types.append('Technology')
+                    
+                # News/Politics
+                if any(term in text_lower for term in ['trump', 'biden', 'election', 'politics', 'news']):
+                    content_types.append('News')
+                    
+                # Social media/viral content
+                if any(term in text_lower for term in ['viral', 'trending', 'tiktok', 'fyp', 'meme']):
+                    content_types.append('Viral Content')
+                    
+                # Entertainment/Celebrity
+                if any(term in text_lower for term in ['celebrity', 'hollywood', 'actor', 'actress', 'movie', 'film']):
+                    content_types.append('Entertainment')
             
-            # Choose the best label source
-            if artist_names and len(artist_names) <= 3:
-                return list(artist_names)[0][:20]  # Take first artist, limit length
-            elif brand_names and len(brand_names) <= 3:
-                return list(brand_names)[0][:20]  # Take first brand, limit length
-            elif song_titles and len(song_titles) <= 3:
-                return list(song_titles)[0][:20]  # Take first song, limit length
+            # Choose best label based on extracted information
             
-            # Final fallback: generate descriptive label based on content type
-            text_lower = " ".join(cleaned_texts[:5]).lower()
-            if 'music' in text_lower or 'song' in text_lower:
+            # 1. If we found specific artists, use the most common one
+            if artist_names:
+                # Take the most frequent or first artist name
+                best_artist = list(artist_names)[0]
+                if len(best_artist) <= 25:  # Reasonable length
+                    return best_artist
+            
+            # 2. If we have a clear content type, use it
+            if content_types:
+                # Get most common content type
+                from collections import Counter
+                content_counter = Counter(content_types)
+                most_common_type = content_counter.most_common(1)[0][0]
+                return most_common_type
+            
+            # 3. Try TF-IDF keyword extraction
+            keywords = self.extract_keywords_from_cluster(cleaned_texts)
+            if keywords:
+                # Filter out common words and create meaningful label
+                meaningful_keywords = []
+                for keyword in keywords[:3]:
+                    clean_keyword = re.sub(r'[^a-zA-Z0-9\s]', '', keyword).strip()
+                    if (clean_keyword and 
+                        len(clean_keyword) >= 3 and
+                        clean_keyword.lower() not in ['video', 'official', 'music', 'new', 'the', 'and', 'for']):
+                        meaningful_keywords.append(clean_keyword.capitalize())
+                
+                if meaningful_keywords:
+                    return " ".join(meaningful_keywords[:2])  # Take top 2 meaningful keywords
+            
+            # 4. Pattern-based extraction for specific content
+            for text in cleaned_texts[:5]:
+                # Look for branded content patterns  
+                if 'vs' in text.lower() or 'versus' in text.lower():
+                    return "Competition"
+                if any(brand in text.lower() for brand in ['apple', 'google', 'microsoft', 'tesla', 'netflix']):
+                    return "Tech Brands"
+                if re.search(r'\b(recipe|cooking|food|chef)\b', text.lower()):
+                    return "Food & Cooking"
+                if re.search(r'\b(workout|fitness|gym|health)\b', text.lower()):
+                    return "Fitness"
+            
+            # 5. Fallback to content type based on overall theme
+            combined_text = " ".join(cleaned_texts[:5]).lower()
+            if 'simulated' in combined_text and 'tweet' in combined_text:
+                return "Social Posts"
+            elif any(word in combined_text for word in ['music', 'song', 'album', 'artist']):
                 return "Music"
-            elif 'game' in text_lower or 'gaming' in text_lower:
-                return "Gaming"  
-            elif 'tweet' in text_lower or 'twitter' in text_lower:
-                return "Social Media"
-            elif 'video' in text_lower and 'youtube' in text_lower:
+            elif any(word in combined_text for word in ['video', 'youtube', 'watch']):
                 return "Video Content"
-            elif 'tech' in text_lower or 'ai' in text_lower:
-                return "Technology"
+            elif any(word in combined_text for word in ['game', 'play', 'gaming']):
+                return "Gaming"
+            elif any(word in combined_text for word in ['news', 'breaking', 'report']):
+                return "News"
             else:
                 return "General Content"
                 
@@ -358,28 +392,55 @@ class TopicLabeler:
         current_mapping = self.load_topic_lookup()
         print(f"Found {len(current_mapping)} existing topics")
         
+        # Clean up circular references where topic IDs point to other topic IDs
+        print("Cleaning up circular references...")
+        cleaned_mapping = current_mapping.copy()
+        cleanup_count = 0
+        
+        for topic_id, label in current_mapping.items():
+            # If label is another topic ID, try to resolve it
+            if label in current_mapping and label != topic_id:
+                resolved_label = current_mapping[label]
+                # Only resolve if the target has a meaningful label
+                if (resolved_label and 
+                    not resolved_label.isdigit() and 
+                    not resolved_label.startswith("topic_") and
+                    resolved_label not in current_mapping):  # Avoid double references
+                    cleaned_mapping[topic_id] = resolved_label
+                    cleanup_count += 1
+                    print(f"Resolved circular reference {topic_id}: '{label}' -> '{resolved_label}'")
+        
+        print(f"Cleaned up {cleanup_count} circular references")
+        
         # Collect texts for each topic
         print("Collecting texts by topic...")
         topic_texts = self.collect_texts_by_topic()
         print(f"Collected texts for {len(topic_texts)} topics")
         
         # Generate new labels
-        updated_mapping = current_mapping.copy()
+        updated_mapping = cleaned_mapping.copy()
         updated_count = 0
         
         for topic_id, texts in topic_texts.items():
             if len(texts) >= self.min_texts_per_topic:
-                current_label = current_mapping.get(topic_id, "")
+                current_label = cleaned_mapping.get(topic_id, "")
                 
-                # Only update if current label is placeholder-like
-                if (not current_label or 
+                # Check if current label is meaningless and should be updated
+                # This includes: empty labels, placeholder labels, pure numeric strings, or topic IDs as labels
+                is_meaningless_label = (
+                    not current_label or 
                     current_label.startswith("topic_") or 
                     current_label.startswith("test_") or
                     current_label.startswith("viral_") or
-                    current_label.startswith("trending_")):
-                    
+                    current_label.startswith("trending_") or
+                    current_label.isdigit() or  # Pure numeric labels (hashed IDs)
+                    (len(current_label) >= 5 and current_label.isdigit()) or  # Long numeric strings
+                    current_label in cleaned_mapping  # Still pointing to another topic ID
+                )
+                
+                if is_meaningless_label:
                     new_label = self.generate_label_for_topic(texts, topic_id)
-                    if new_label != current_label:
+                    if new_label != current_label and not new_label.startswith("topic_"):
                         updated_mapping[topic_id] = new_label
                         updated_count += 1
                         print(f"Updated topic {topic_id}: '{current_label}' -> '{new_label}'")
@@ -387,7 +448,7 @@ class TopicLabeler:
         print(f"Updated {updated_count} topic labels")
         
         # Save updated mapping
-        if updated_count > 0:
+        if updated_count > 0 or cleanup_count > 0:
             self.save_topic_lookup(updated_mapping)
             print(f"Saved updated topic mapping to {self.topic_lookup_path}")
         
