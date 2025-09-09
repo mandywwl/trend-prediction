@@ -155,11 +155,14 @@ cython_debug/
 # VS Code
 .vscode/
 
-# Test data directories
+# Data files
 test_datasets/
 datasets/metrics_hourly/*.json
 datasets/predictions_cache.json
-
-# Test-generated metrics directories
-datasets/test_metrics/
-datasets/test_direct/
+datasets/events.jsonl
+datasets/events.db
+datasets/emergence_labels.log
+datasets/metrics_lookup.json
+datasets/checkpoint_*.pt
+datasets/final_checkpoint.pt
+datasets/tgn_edges_basic.npz
