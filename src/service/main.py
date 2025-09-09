@@ -7,7 +7,9 @@ import signal
 import time
 import json
 import queue
+import numpy as np
 import random
+
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 from datetime import datetime, timezone
@@ -396,8 +398,12 @@ class IntegratedEventHandler(EventHandler):
                     topic_mapping = json.load(f)
                     # Get all existing topic IDs whose labels are non-numeric
                     self.topic_ids = [
-                        int(tid) for tid, label in topic_mapping.items()
-                        if not str(label).isdigit()
+                        int(tid) for tid, 
+                        label in topic_mapping.items() if not str(label).isdigit()
+                    ]
+                    self.topic_labels = [
+                        label for _, 
+                        label in topic_mapping.items() if not str(label).isdigit()
                     ]
                     self.logger.info(
                         f"Loaded {len(self.topic_ids)} existing topic IDs from topic_lookup.json"
@@ -408,25 +414,15 @@ class IntegratedEventHandler(EventHandler):
         # Fallback: use some default topic IDs if lookup file is empty/missing
         if not self.topic_ids:
             self.topic_ids = [100000 + i for i in range(10)]  # Generate some default IDs
-            self.logger.info("Using default topic IDs as fallback")
+            self.topic_labels = [f"General {i}" for i in range(10)]  # fallback labels
     
     def _generate_realistic_scores(self, event: Event) -> Dict[str, float]:
-        """Generate prediction scores using existing topic IDs instead of placeholders."""
-        import numpy as np
         
-        # Select a subset of topic IDs to score (simulate top-k predictions)
-        k = min(5, len(self.topic_ids))  # Top-5 predictions
-        selected_ids = random.sample(self.topic_ids, k)
-        
-        # Generate realistic scores that sum to something reasonable
-        base_scores = np.random.exponential(scale=0.3, size=k)  # Exponential distribution
-        base_scores = np.sort(base_scores)[::-1]  # Sort descending
-        
-        # Normalize to reasonable range [0.1, 0.9]
-        scores = {}
-        for i, topic_id in enumerate(selected_ids):
-            score = min(0.9, max(0.1, base_scores[i]))
-            scores[str(topic_id)] = float(score)
+        labels = getattr(self, "topic_labels", []) or [str(tid) for tid in self.topic_ids]
+        k = min(5, len(labels)) or 5
+        chos = random.sample(labels, k) if labels else [f"Topic {i}" for i in range(k)]
+        base = np.sort(np.random.exponential(scale=0.3, size=k))[::-1]
+        scores = {chos[i]: float(min(0.9, max(0.1, base[i]))) for i in range(k)}
         
         return scores
     

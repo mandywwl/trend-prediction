@@ -12,6 +12,7 @@ import json
 import time
 import threading
 import traceback
+import hashlib
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Generator
@@ -448,54 +449,83 @@ class RuntimeGlue:
         except Exception as e:
             print(f"[{datetime.now().isoformat()}] Error updating metrics lookup: {e}")
 
-    def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]):
+    def _stable_id(self, label: str) -> int:
+        return int(hashlib.blake2s(label.encode("utf-8"), digest_size=4).hexdigest(), 16) % 1_000_000
+
+
+    def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]) -> None:
         """Record event and scores for metrics tracking."""
         try:
-            # Extract topic_id and user_id from event
-            topic_id = hash(event.get('event_id', '')) % 1000000  # Simple hash for demo
-            label = event.get('event_id', '')
-            self._update_metrics_lookup(topic_id, label)
-            if label and not str(label).isdigit():
-                self._update_topic_lookup(topic_id, label)
-            user_id = event.get('actor_id', 'unknown')
-            ts_iso = event.get('ts_iso', datetime.now(timezone.utc).isoformat())
-            
-            # Record event for emergence labeling
-            self.precision_tracker.record_event(
-                topic_id=topic_id,
-                user_id=user_id,
-                ts_iso=ts_iso
+            # --- normalize event fields ---
+            user_id = (
+                event.get("user_id")
+                or event.get("actor_id")
+                or event.get("author_id")
+                or event.get("channel_id")
+                or "unknown"
             )
-            
-            # Record predictions if scores are available
+            ts_iso = (
+                event.get("ts_iso")
+                or event.get("timestamp")
+                or datetime.now(timezone.utc).isoformat()
+            )
+
+            # --- convert predictions -> (topic_id, score) using numeric-or-stable-id rule ---
+            predictions: list[tuple[int, float]] = []
+            top_topic_id: int | None = None
+            top_score = float("-inf")
+
             if scores:
-                predictions = []
                 for key, score in scores.items():
-                    if isinstance(score, (int, float)):
-                        # Convert string topic names to integer IDs for the metrics system
-                        topic_id = abs(hash(key)) % 1000000
-                        predictions.append((topic_id, score))
-                        self._update_metrics_lookup(topic_id, key)
-                        if key and not str(key).isdigit():
-                            self._update_topic_lookup(topic_id, key)
-                
-                if predictions:
-                    self.precision_tracker.record_predictions(
-                        ts_iso=ts_iso,
-                        items=predictions
-                    )
-                    
-                    # Update predictions buffer for cache
-                    formatted_predictions = [
-                        {"topic_id": topic_id, "score": float(score)}
-                        for topic_id, score in predictions
-                    ]
-                    self._predictions_buffer.append(formatted_predictions)
-                    
-                    # Keep buffer manageable
-                    if len(self._predictions_buffer) > 100:
-                        self._predictions_buffer = self._predictions_buffer[-50:]
-        
+                    if not isinstance(score, (int, float)):
+                        continue
+
+                    if str(key).isdigit():
+                        topic_id = int(key)  # numeric key: use as-is
+                        label = self._topic_lookup.get(str(topic_id), "")
+                        # keep metrics lookup in sync
+                        self._update_metrics_lookup(topic_id, label or str(topic_id))
+                        if label and not str(label).isdigit():
+                            self._update_topic_lookup(topic_id, label)
+                    else:
+                        # string label: assign stable ID and persist mapping
+                        topic_id = self._stable_id(key)
+                        self._update_metrics_lookup(topic_id, str(key))
+                        self._update_topic_lookup(topic_id, str(key))
+
+                    predictions.append((topic_id, float(score)))
+                    if score > top_score:
+                        top_score = float(score)
+                        top_topic_id = topic_id
+
+            # --- choose a topic for the event itself (emergence tracking) ---
+            # prefer the top predicted topic; if none, fall back to a stable hash of content_id/text
+            if top_topic_id is None:
+                fallback_key = (
+                    event.get("content_id")
+                    or event.get("event_id")
+                    or event.get("text")
+                    or "unknown_topic"
+                )
+                top_topic_id = self._stable_id(fallback_key)
+
+            # record the event occurrence for emergence / precision@k tracking
+            self.precision_tracker.record_event(
+                topic_id=top_topic_id,
+                user_id=user_id,
+                ts_iso=ts_iso,
+            )
+
+            # --- record the prediction list (if any) ---
+            if predictions:
+                self.precision_tracker.record_predictions(ts_iso=ts_iso, items=predictions)
+
+                # keep short rolling buffer for the Streamlit cache
+                formatted = [{"topic_id": tid, "score": float(sc)} for tid, sc in predictions]
+                self._predictions_buffer.append(formatted)
+                if len(self._predictions_buffer) > 100:
+                    self._predictions_buffer = self._predictions_buffer[-50:]
+
         except Exception as e:
             # Never let metrics recording break the main loop
             print(f"Error recording metrics: {e}")
