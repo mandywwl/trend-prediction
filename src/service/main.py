@@ -566,33 +566,39 @@ def create_event_stream():
             stream_logger.error(f"YouTube collector error: {e}")
     
     def trends_collector():
-        """Google Trends collector thread.
-        Attempts real pytrends polling; falls back to synthetic if pytrends
-        unavailable or an error occurs.
-        """
+
+        """ Simulated Google Trends collector. """ #TODO: Replace with real API integration when available.
+
         def on_trends_event(event):
             if not shutdown_event.is_set():
                 enhanced_log_event(event)
                 event_queue.put(event)
 
+        print("[Trends] Starting enhanced simulated trends collector...")
+        
         try:
-            # Real collector (blocks with internal loop)
+            # Use realistic simulated trends with 30-minute cycles
             start_google_trends_collector(
                 on_event=on_trends_event,
                 region="US",
                 category="all",
-                count=20,
-                interval=3600,
+                count=8,  # 8 trends per cycle
+                interval=1800,  # 30 minutes
             )
-            return
         except Exception as e:
-            stream_logger.error(f"Real Google Trends collector failed, falling back to fake: {e}")
-
-        # Fallback: finite synthetic events
-        try:
-            fake_google_trends_stream(on_event=on_trends_event, n_events=20, delay=5.0)
-        except Exception as e:
-            stream_logger.error(f"Trends collector (fake fallback) error: {e}")
+            stream_logger.error(f"Simulated trends collector error: {e}")
+            # Fallback to simple fake trends
+            while not shutdown_event.is_set():
+                try:
+                    fake_google_trends_stream(
+                        on_event=on_trends_event,
+                        n_events=5,
+                        delay=2.0
+                    )
+                    time.sleep(600)  # 10 minutes between batches
+                except Exception as fallback_error:
+                    stream_logger.error(f"Fallback trends error: {fallback_error}")
+                    time.sleep(120)
     
     # Start collector threads
     twitter_thread = threading.Thread(target=twitter_collector, name="TwitterCollector")

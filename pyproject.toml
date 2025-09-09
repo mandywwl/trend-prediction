@@ -56,7 +56,6 @@ dependencies = [
     "pyee~=13.0",
     "pyparsing~=3.2",
     "pytest~=7.0",
-    "pytrends~=4.9",
     "python-dateutil~=2.9",
     "python-dotenv~=1.1",
     "PyYAML~=6.0",
