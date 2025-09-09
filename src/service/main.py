@@ -29,7 +29,7 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 # Pipeline imports
-from data_pipeline.collectors.twitter_collector import fake_twitter_stream, start_twitter_stream
+from data_pipeline.collectors.twitter_collector import start_twitter_stream, realistic_fake_twitter_stream, enhanced_fake_twitter_stream
 from data_pipeline.collectors.youtube_collector import start_youtube_api_collector
 from data_pipeline.collectors.google_trends_collector import start_google_trends_collector, fake_google_trends_stream
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
@@ -520,15 +520,48 @@ def create_event_stream():
     event_queue = queue.Queue()
     collectors = []
     
+
     def twitter_collector():
-        """Twitter collector thread.
-        Tries real Twitter stream first; falls back to fake stream if credentials
-        missing or an error occurs.
+        """Twitter collector thread with enhanced realistic simulation.
+        Tries real Twitter stream first; falls back to enhanced realistic simulation.
         """
         def on_twitter_event(event):
             if not shutdown_event.is_set():
                 enhanced_log_event(event)
                 event_queue.put(event)
+
+        # Get trending topics from other collectors to influence tweets
+        def get_current_trending_topics():
+            """Extract recent trending topics to influence tweet content."""
+            trending_topics = []
+            
+            # Try to get recent trends from events.jsonl
+            try:
+                if EVENT_LOG.exists():
+                    with open(EVENT_LOG, 'r') as f:
+                        recent_lines = f.readlines()[-20:]  # Last 20 events
+                        
+                    for line in recent_lines:
+                        try:
+                            event = json.loads(line)
+                            if event.get('source') == 'google_trends':
+                                topic = event.get('text', '')
+                                if topic and len(topic) < 50:  # Reasonable length
+                                    trending_topics.append(topic)
+                        except:
+                            continue
+            except:
+                pass
+            
+            # Add some default trending topics if none found
+            if not trending_topics:
+                trending_topics = [
+                    "artificial intelligence", "climate change", "electric vehicles",
+                    "streaming services", "remote work", "social media", "gaming",
+                    "cryptocurrency", "space exploration", "renewable energy"
+                ]
+            
+            return trending_topics[:10]  # Return top 10
 
         # Prefer real stream when we have a bearer token
         if TWITTER_BEARER_TOKEN:
@@ -540,18 +573,29 @@ def create_event_stream():
                 )
                 return
             except Exception as e:
-                stream_logger.error(f"Real Twitter stream failed, falling back to fake: {e}")
+                stream_logger.error(f"Real Twitter stream failed, falling back to enhanced simulation: {e}")
 
-        # Fallback: simulated events (finite)
+        # Enhanced realistic simulation fallback
         try:
-            fake_twitter_stream(
+            stream_logger.info("Starting enhanced realistic Twitter simulation...")
+            
+            # Get trending topics to influence tweet content
+            trending_topics = get_current_trending_topics()
+            
+            # Import the enhanced function
+            from data_pipeline.collectors.twitter_collector import enhanced_fake_twitter_stream
+            
+            enhanced_fake_twitter_stream(
                 keywords=KEYWORDS,
                 on_event=on_twitter_event,
-                n_events=50,
-                delay=2.0,
+                events_per_batch=4,      # 4 tweets per batch
+                batch_interval=120,      # Every 2 minutes
+                topic_hints=trending_topics  # Use trending topics to influence content
             )
+            
         except Exception as e:
-            stream_logger.error(f"Twitter collector (fake fallback) error: {e}")
+            stream_logger.error(f"Enhanced Twitter simulation failed: {e}")
+            
     
     def youtube_collector():
         """YouTube collector thread."""
