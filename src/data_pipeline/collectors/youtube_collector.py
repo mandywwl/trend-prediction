@@ -4,7 +4,7 @@ import time
 
 
 def start_youtube_api_collector(
-    api_key, on_event=None, categories=None, max_results=10, region_code="US", delay=1.0
+    api_key, on_event=None, categories=None, max_results=50, region_code="US", delay=1.0
 ):
     """
     Start collecting trending YouTube videos using the YouTube Data API.
