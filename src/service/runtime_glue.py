@@ -423,30 +423,12 @@ class RuntimeGlue:
             print(f"[{datetime.now().isoformat()}] Error running topic labeling pipeline: {e}")
     
     def _update_topic_lookup(self, topic_id: int, label: str) -> None:
-        """Persist mapping from topic_id to original label in topic lookup.
-        
-        NOTE: This method should only be used to create new meaningful labels.
-        It will not override existing meaningful labels (only numeric/placeholder ones).
-        """
+        """Persist mapping from topic_id to original label in topic lookup."""
         if not label:
             return
         try:
             key = str(topic_id)
-            existing_label = self._topic_lookup.get(key)
-            
-            # Don't override existing meaningful labels with hashed IDs or numeric values
-            if existing_label and not (
-                existing_label.isdigit() or 
-                existing_label.startswith("topic_") or 
-                existing_label.startswith("test_") or
-                existing_label.startswith("viral_") or
-                existing_label.startswith("trending_")
-            ):
-                # Existing label is meaningful, don't override
-                return
-                
-            # Only update if the new label is different and potentially meaningful
-            if existing_label != label and not label.isdigit():
+            if self._topic_lookup.get(key) != label:
                 self._topic_lookup[key] = label
                 with open(self._topic_lookup_path, 'w', encoding='utf-8') as f:
                     json.dump(self._topic_lookup, f, indent=2)
@@ -469,32 +451,33 @@ class RuntimeGlue:
     def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]):
         """Record event and scores for metrics tracking."""
         try:
-            # Use existing topic IDs from scores instead of creating new hashed ones
+            # Extract topic_id and user_id from event
+            topic_id = hash(event.get('event_id', '')) % 1000000  # Simple hash for demo
+            label = event.get('event_id', '')
+            self._update_metrics_lookup(topic_id, label)
+            if label and not str(label).isdigit():
+                self._update_topic_lookup(topic_id, label)
             user_id = event.get('actor_id', 'unknown')
             ts_iso = event.get('ts_iso', datetime.now(timezone.utc).isoformat())
+            
+            # Record event for emergence labeling
+            self.precision_tracker.record_event(
+                topic_id=topic_id,
+                user_id=user_id,
+                ts_iso=ts_iso
+            )
             
             # Record predictions if scores are available
             if scores:
                 predictions = []
                 for key, score in scores.items():
-                    if isinstance(score, (int, float)) and key.isdigit():
-                        # Use the existing topic ID from the prediction scores
-                        topic_id = int(key)
+                    if isinstance(score, (int, float)):
+                        # Convert string topic names to integer IDs for the metrics system
+                        topic_id = abs(hash(key)) % 1000000
                         predictions.append((topic_id, score))
-                        
-                        # Only update metrics lookup, don't create new entries in topic_lookup
-                        # (topic_lookup should be managed by the topic labeling pipeline)
-                        self._update_metrics_lookup(topic_id, str(topic_id))
-                
-                if predictions:
-                    # Record event using the first predicted topic ID
-                    if len(predictions) > 0:
-                        primary_topic_id = predictions[0][0]
-                        self.precision_tracker.record_event(
-                            topic_id=primary_topic_id,
-                            user_id=user_id,
-                            ts_iso=ts_iso
-                        )
+                        self._update_metrics_lookup(topic_id, key)
+                        if key and not str(key).isdigit():
+                            self._update_topic_lookup(topic_id, key)
                 
                 if predictions:
                     self.precision_tracker.record_predictions(
