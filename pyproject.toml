@@ -102,6 +102,4 @@ packages = [
     "service.services",
     "service.services.inference",
     "utils",
-    "dashboard",
-    "dashboard.components"
 ]
