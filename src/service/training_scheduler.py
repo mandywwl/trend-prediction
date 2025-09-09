@@ -2,6 +2,10 @@
 
 import time
 import threading
+import json
+import tempfile
+import os
+
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Callable, Any
@@ -118,25 +122,68 @@ class TrainingScheduler:
             logger.error(f"Training failed: {e}")
     
     def _run_preprocessing(self, events_file: Path) -> None:
+
         """Run preprocessing to generate TGN data from events."""
+
         try:
             # Import here to avoid circular dependencies
             from data_pipeline.processors.preprocessing import build_tgn
             
+            src_path: Path = events_file
+            try:
+                fd, tmp_name = tempfile.mkstemp(suffix=".jsonl")
+                os.close(fd)  # we will reopen with text mode
+                tmp_path = Path(tmp_name)
+
+                with open(events_file, "r", encoding="utf-8") as fin, \
+                    open(tmp_path, "w", encoding="utf-8") as fout:
+                    for line in fin:
+                        if not line.strip():
+                            continue
+                        obj = json.loads(line)
+
+                        # If missing, derive a user_id from other plausible fields or fallback
+                        if "user_id" not in obj:
+                            obj["user_id"] = (
+                                obj.get("actor_id")
+                                or obj.get("author_id")
+                                or obj.get("u_id")
+                                or obj.get("channel_id")
+                                or obj.get("account_id")
+                                or "unknown"
+                            )
+
+                        fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+                src_path = tmp_path
+                logger.info(f"Normalised events for preprocessing → {src_path}")
+
+            except Exception as norm_err:
+                logger.warning(f"Could not normalise events ({norm_err}); using original file")
+                src_path = events_file  # fall back
+
+            
             output_file = self.datasets_dir / "tgn_edges_basic.npz"
-            
-            logger.info(f"Running preprocessing on {events_file}")
+            logger.info(f"Running preprocessing on {src_path}")
             build_tgn(
-                events_path=str(events_file),
+                events_path=str(src_path),
                 output_path=str(output_file),
-                force=True  # Always rebuild for training
+                force=True,  # Always rebuild for training
             )
-            
             logger.info(f"Preprocessing completed: {output_file}")
-            
+
         except Exception as e:
             logger.error(f"Preprocessing failed: {e}")
             raise
+        finally:
+            
+            try:
+                if 'tmp_path' in locals() and tmp_path.exists():
+                    # Only delete if it isn't the original file we were given
+                    if tmp_path.resolve() != events_file.resolve():
+                        tmp_path.unlink()
+            except Exception:
+                pass
     
     def force_training(self) -> None:
         """Force immediate training regardless of schedule."""

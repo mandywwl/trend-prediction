@@ -92,12 +92,18 @@ class EmergenceLabelBuffer:
         """
         now = parse_iso_timestamp(ts_iso)
         self._events.append((now, user_id))
-        self._evict_older_than(now - timedelta(minutes=self.window_min))
+
+        # KEEP events for both current and past windows:
+        # retain the last (delta_hours + window_min) of time
+        self._evict_older_than(
+            now - timedelta(hours=self.delta_hours, minutes=self.window_min)
+        )
 
         mentions_curr, unique_curr = self._counts_in_range(
             start=now - timedelta(minutes=self.window_min), end=now
         )
-        past_start = now - timedelta(hours=self.delta_hours + self.window_min)
+
+        past_start = now - timedelta(hours=self.delta_hours, minutes=self.window_min)
         past_end = now - timedelta(hours=self.delta_hours)
         mentions_past, _ = self._counts_in_range(start=past_start, end=past_end)
 
@@ -262,11 +268,13 @@ class PrecisionAtKOnline:
         k_options: Optional[Iterable[int]] = None,
         regime_shift_threshold: float = 0.5,
         adaptivity_target: float = 0.1,
+        sensitivity: Optional[SensitivityController] = None,
     ) -> None:
-        self.delta_hours: int = int(DELTA_HOURS if delta_hours is None else delta_hours)
-        self.window_min: int = int(WINDOW_MIN if window_min is None else window_min)
-        self.k_default: int = int(K_DEFAULT if k_default is None else k_default)
-        self.k_options: Tuple[int, ...] = tuple(k_options or K_OPTIONS)
+        self.delta_hours = int(DELTA_HOURS if delta_hours is None else delta_hours)
+        self.window_min  = int(WINDOW_MIN  if window_min  is None else window_min)
+        self.k_default   = int(K_DEFAULT   if k_default   is None else k_default)
+        self.k_options   = tuple(k_options or K_OPTIONS)
+        self.sensitivity = sensitivity or SensitivityController()
 
         self._labels: Dict[int, EmergenceLabelBuffer] = {}
         self._pred_log: Deque[_TopKEntry] = deque()
@@ -282,9 +290,14 @@ class PrecisionAtKOnline:
 
     # ------------------------------------------------------------------
     def record_event(self, *, topic_id: int, user_id: str, ts_iso: str) -> int:
-        buf = self._labels.setdefault(topic_id, EmergenceLabelBuffer(
-            delta_hours=self.delta_hours, window_min=self.window_min
-        ))
+        buf = self._labels.setdefault(
+            topic_id, 
+            EmergenceLabelBuffer(
+                sensitivity=self.sensitivity,
+                delta_hours=self.delta_hours, 
+                window_min=self.window_min
+            )
+        )
         ts = parse_iso_timestamp(ts_iso)
         self._latest_ts = max(self._latest_ts or ts, ts)
         return buf.add_event(ts_iso=ts_iso, user_id=user_id)

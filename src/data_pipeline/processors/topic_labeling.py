@@ -2,10 +2,13 @@
 
 import json
 import re
+import hashlib
+import numpy as np
+
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
-import numpy as np
+
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import pipeline
@@ -60,6 +63,10 @@ class TopicLabeler:
             ngram_range=(1, 2),
             min_df=2
         )
+
+    def _stable_id(name: str) -> str:
+        """Deterministic 6-digit ID from a name (stable across processes)."""
+        return str(int(hashlib.blake2s(name.encode("utf-8"), digest_size=4).hexdigest(), 16) % 1_000_000)
     
     def load_topic_lookup(self) -> Dict[str, str]:
         """Load current topic lookup mapping."""
@@ -75,95 +82,68 @@ class TopicLabeler:
             json.dump(topic_mapping, f, indent=2)
     
     def collect_texts_by_topic(self) -> Dict[str, List[str]]:
-        """Collect text examples grouped by topic from events."""
+        """Collect text examples grouped by topic from events.
+
+        If no existing mapping is present, bootstrap categories -> stable IDs so
+        we can generate initial human labels and write topic_lookup.json.
+        """
         topic_texts = defaultdict(list)
-        
-        if not self.events_path.exists():
-            print(f"Events file {self.events_path} not found, creating from existing topic labels")
-            # Generate synthetic text examples based on existing topic labels
-            current_mapping = self.load_topic_lookup()
-            return self._generate_synthetic_texts(current_mapping)
-        
-        # Load current topic mapping to get topic IDs
+
+        # 1) Load current mapping (may be empty on first run)
         current_mapping = self.load_topic_lookup()
-        
-        # Strategy: Group texts by semantic similarity and map to existing placeholder topics
-        # This simulates how topics might be discovered in a real system
-        
-        # First, collect all texts and categorize them
-        all_texts = []
+
+        # 2) Ingest texts from events (light categorization)
         text_categories = defaultdict(list)
-        
         processed_events = 0
-        with open(self.events_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                try:
-                    event = json.loads(line.strip())
-                    text = event.get('text', '').strip()
-                    source = event.get('source', '')
-                    event_type = event.get('type', '')
-                    
-                    if not text:
+
+        if self.events_path.exists():
+            with open(self.events_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        ev = json.loads(line)
+                    except Exception:
                         continue
-                    
+                    txt = (ev.get("text") or "").strip()
+                    if not txt:
+                        continue
                     processed_events += 1
-                    all_texts.append(text)
-                    
-                    # Categorize texts by source and content patterns
-                    if 'music' in text.lower() or 'song' in text.lower() or any(artist in text for artist in ['Swift', 'Gaga', 'YoungBoy']):
-                        text_categories['music'].append(text)
-                    elif 'video' in text.lower() and source == 'youtube':
-                        text_categories['video'].append(text) 
-                    elif source == 'twitter' and ('tweet' in text.lower() or 'simulated' in text.lower()):
-                        text_categories['social'].append(text)
-                    elif 'game' in text.lower() or 'gaming' in text.lower():
-                        text_categories['gaming'].append(text)
-                    elif 'tech' in text.lower() or 'ai' in text.lower() or 'artificial' in text.lower():
-                        text_categories['technology'].append(text)
+                    low = txt.lower()
+                    src = ev.get("source", "")
+
+                    if any(k in low for k in ["music", "song"]) or any(a in txt for a in ["Swift", "Gaga", "YoungBoy", "Carpenter"]):
+                        text_categories["music"].append(txt)
+                    elif "video" in low and src == "youtube":
+                        text_categories["video"].append(txt)
+                    elif any(k in low for k in ["game", "gaming", "esports"]):
+                        text_categories["gaming"].append(txt)
+                    elif any(k in low for k in ["tech", "ai", "artificial", "machine learning"]):
+                        text_categories["technology"].append(txt)
+                    elif src == "twitter":
+                        text_categories["social"].append(txt)
                     else:
-                        text_categories['general'].append(text)
-                        
-                except (json.JSONDecodeError, KeyError):
+                        text_categories["general"].append(txt)
+
+        # If very few events, keep going with synthetic support text from existing labels
+        if processed_events < 10 and current_mapping:
+            for _, lbl in current_mapping.items():
+                text_categories["synthetic"].extend([f"{lbl} trending", f"Latest {lbl} update"])
+
+        # 3) Map categories -> topic IDs
+        if current_mapping:
+            # distribute categories to *existing* topic ids
+            topic_ids = list(current_mapping.keys())
+            cat_names = list(text_categories.keys())
+            for i, cat in enumerate(cat_names):
+                if i < len(topic_ids):
+                    topic_texts[topic_ids[i]].extend(text_categories[cat])
+        else:
+            # BOOTSTRAP: create stable IDs from category names
+            for cat, texts in text_categories.items():
+                if not texts:
                     continue
-        
-        # If we processed very few events, supplement with synthetic data
-        if processed_events < 10:
-            print(f"Only {processed_events} events found, supplementing with synthetic data")
-            synthetic_texts = self._generate_synthetic_texts(current_mapping)
-            for topic_id, texts in synthetic_texts.items():
-                text_categories['synthetic'].extend(texts)
-        
-        # Map categories to existing topic IDs
-        # Use a deterministic assignment based on topic placeholders
-        topic_assignments = {}
-        topic_ids = list(current_mapping.keys())
-        
-        category_names = list(text_categories.keys())
-        for i, category in enumerate(category_names):
-            if i < len(topic_ids):
-                # Assign categories to topics deterministically
-                topic_id = topic_ids[i % len(topic_ids)]
-                topic_assignments[category] = topic_id
-        
-        # Distribute texts to topics
-        for category, texts in text_categories.items():
-            if category in topic_assignments:
-                topic_id = topic_assignments[category]
+                topic_id = self._stable_id(cat)  # e.g. "music" -> "136002"
                 topic_texts[topic_id].extend(texts)
-            
-        # Add some texts to multiple topics to simulate overlap
-        if len(topic_ids) > len(category_names):
-            remaining_topics = topic_ids[len(category_names):]
-            all_category_texts = []
-            for texts in text_categories.values():
-                all_category_texts.extend(texts)
-            
-            # Distribute remaining texts
-            for i, topic_id in enumerate(remaining_topics):
-                start_idx = (i * len(all_category_texts)) // len(remaining_topics)
-                end_idx = ((i + 1) * len(all_category_texts)) // len(remaining_topics)
-                topic_texts[topic_id].extend(all_category_texts[start_idx:end_idx])
-        
+
         return topic_texts
     
     def _generate_synthetic_texts(self, current_mapping: Dict[str, str]) -> Dict[str, List[str]]:

@@ -55,6 +55,8 @@ class SensitivityConfig:
     decay_alpha: float = THRESH_DECAY_RATE
     log_path: Path = find_repo_root() / "datasets" / "adaptive_thresholds.log"
     window_minutes: int = SPAM_WINDOW_MIN
+    log_snapshot_every_events: int = 50        # emit after N events (even if unchanged)
+    log_snapshot_every_secs: int = 120         # or after N seconds since last snapshot
 
 
 @dataclass
@@ -128,7 +130,13 @@ class SensitivityController:
         # Logging
         self.cfg.log_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # snapshot cadence state
+        self._events_since_snapshot: int = 0
+        self._last_snapshot_ts: Optional[datetime] = None
+
         self._lock = RLock()
+
+        self._log_thresholds_snapshot(reason="bootstrap") # write one baseline snapshot immediately so the panel is never empty
 
     # ------------------------------------------------------------------
     def record_event(self, *, is_spam: bool, latency_ms: Optional[float]) -> None:
@@ -155,16 +163,28 @@ class SensitivityController:
             # Update back-pressure policy based on latency percentiles
             self._maybe_apply_back_pressure()
 
-            # Log changes if any
-            if (self._theta_g, self._theta_u) != prev_th:
-                self._log(
-                    action="thresholds_updated",
-                    payload={
-                        "theta_g": self._theta_g,
-                        "theta_u": self._theta_u,
-                        "spam_rate": self._spam_rate(),
-                    },
-                )
+            # # Log changes if any
+            # if (self._theta_g, self._theta_u) != prev_th:
+            #     self._log(
+            #         action="thresholds_updated",
+            #         payload={
+            #             "theta_g": self._theta_g,
+            #             "theta_u": self._theta_u,
+            #             "spam_rate": self._spam_rate(),
+            #         },
+            #     )
+
+            # Log on change or cadence
+            changed = (self._theta_g, self._theta_u) != prev_th
+            self._events_since_snapshot += 1
+            now = datetime.now(timezone.utc)
+            due_by_events = self._events_since_snapshot >= self.cfg.log_snapshot_every_events
+            due_by_time = (
+                self._last_snapshot_ts is None
+                or (now - self._last_snapshot_ts).total_seconds() >= self.cfg.log_snapshot_every_secs
+            )
+            if changed or due_by_events or due_by_time:
+                self._log_thresholds_snapshot(reason="changed" if changed else "periodic")
 
             if (
                 (self._policy.active != prev_policy.active)
@@ -208,6 +228,19 @@ class SensitivityController:
                 "p50_ms": self._p50_ms(),
                 "p95_ms": self._p95_ms(),
             }
+    
+    # ------------------------------------------------------------------
+    def _log_thresholds_snapshot(self, *, reason: str = "periodic") -> None:
+        rec = {
+            "theta_g": round(float(self._theta_g), 3),
+            "theta_u": round(float(self._theta_u), 3),
+            "spam_rate": round(float(self._spam_rate()), 3),
+            # the panel only requires ts/theta_g/theta_u[/spam_rate]; extra fields are fine
+            "reason": reason,
+        }
+        self._log(action="thresholds_updated", payload=rec)
+        self._events_since_snapshot = 0
+        self._last_snapshot_ts = datetime.now(timezone.utc)
 
     # ----------------------- Internals --------------------------------
     def _spam_rate(self) -> float:

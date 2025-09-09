@@ -7,10 +7,12 @@ import signal
 import time
 import json
 import queue
+import numpy as np
 import random
+
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
-
+from datetime import datetime, timezone
 
 
 from utils.path_utils import find_repo_root
@@ -247,6 +249,8 @@ class EventHandler:
 
         if self.spam_scorer is not None:
             weight = self.spam_scorer.edge_weight(processed)
+            processed["edge_weight"] = weight
+            processed['is_spam'] = bool(weight < 0.8)  # expose bool spam flag for metrics/robustness panels
             processed.setdefault("features", {})["edge_weight"] = weight
 
         result = self._infer(processed)
@@ -296,12 +300,14 @@ class IntegratedEventHandler(EventHandler):
             spam_scorer=spam_scorer,
             sensitivity=sensitivity_controller,
         )
+        self.runtime_glue = None
         
         self.graph_builder = graph_builder
         self.logger = get_logger(f"{__name__}.IntegratedEventHandler")
         
-        # Event counter for checkpoints
+        # Event counter for checkpoints & last refresh time
         self.event_counter = 0
+        self._last_topic_refresh = None
         
         # Load existing topic lookup for generating realistic scores
         self._load_topic_lookup()
@@ -315,36 +321,57 @@ class IntegratedEventHandler(EventHandler):
         from utils.io import LatencyTimer
         with LatencyTimer() as timer:
             timer.start_stage('ingest')
+
             # Event validation/logging
             self.event_counter += 1
             timer.end_stage('ingest')
 
             timer.start_stage('preprocess')
+
             # Process through parent handler (includes embedding)
             super().handle(event)
             timer.end_stage('preprocess')
 
             timer.start_stage('model_update_forward')
+
             # Generate prediction scores using existing topic IDs from topic_lookup.json
             scores = self._generate_realistic_scores(event)
             timer.end_stage('model_update_forward')
 
             timer.start_stage('postprocess')
-            # Cache updates and periodic operations
-            # Save periodic checkpoints
+
+            # refresh topic labels every 100 events (only if glue is available)
             if self.event_counter % 100 == 0:
-                self._save_checkpoint()
+                try:
+                    if getattr(self, "runtime_glue", None) is not None:
+                        self.runtime_glue.update_topic_labels()
+                except Exception as e:
+                    self.logger.warning(f"Skipped topic label refresh: {e}")
+
 
             # Run periodic preprocessing (every 1000 events to avoid overhead)
             if self.event_counter % 1000 == 0:
                 periodic_preprocessing()
 
-            # Refresh topic labeling every 5000 events to update meaningful labels
-            if self.event_counter % 5000 == 0:
-                self._refresh_topic_labels()
-            timer.end_stage('postprocess')
+            REFRESH_EVERY = int(os.getenv("TOPIC_REFRESH_EVERY", "100"))
+            REFRESH_SECS  = int(os.getenv("TOPIC_REFRESH_SECS",  "900"))  # 15 min backstop
+            now = datetime.now(timezone.utc)
+            backstop_due = (
+                not hasattr(self, "_last_topic_refresh")
+                or (self._last_topic_refresh is None)
+                or ((now - getattr(self, "_last_topic_refresh")).total_seconds() >= REFRESH_SECS)
+            )
+            if (self.event_counter % REFRESH_EVERY == 0) or backstop_due:
+                rg = getattr(self, "runtime_glue", None)
+                if rg is not None and not getattr(rg, "is_shutting_down", False):
+                    try:
+                        rg.update_topic_labels()
+                        self._last_topic_refresh = now
+                    except Exception as e:
+                        self.logger.warning(f"Skipped topic label refresh (backstop): {e}")
             
-        # Store measurement AFTER exiting context (total_duration_ms is set in __exit__)
+            # close the preprocess stage
+            timer.end_stage('postprocess')
 
         self._record_latency(timer)
         return scores
@@ -371,8 +398,12 @@ class IntegratedEventHandler(EventHandler):
                     topic_mapping = json.load(f)
                     # Get all existing topic IDs whose labels are non-numeric
                     self.topic_ids = [
-                        int(tid) for tid, label in topic_mapping.items()
-                        if not str(label).isdigit()
+                        int(tid) for tid, 
+                        label in topic_mapping.items() if not str(label).isdigit()
+                    ]
+                    self.topic_labels = [
+                        label for _, 
+                        label in topic_mapping.items() if not str(label).isdigit()
                     ]
                     self.logger.info(
                         f"Loaded {len(self.topic_ids)} existing topic IDs from topic_lookup.json"
@@ -383,25 +414,15 @@ class IntegratedEventHandler(EventHandler):
         # Fallback: use some default topic IDs if lookup file is empty/missing
         if not self.topic_ids:
             self.topic_ids = [100000 + i for i in range(10)]  # Generate some default IDs
-            self.logger.info("Using default topic IDs as fallback")
+            self.topic_labels = [f"General {i}" for i in range(10)]  # fallback labels
     
     def _generate_realistic_scores(self, event: Event) -> Dict[str, float]:
-        """Generate prediction scores using existing topic IDs instead of placeholders."""
-        import numpy as np
         
-        # Select a subset of topic IDs to score (simulate top-k predictions)
-        k = min(5, len(self.topic_ids))  # Top-5 predictions
-        selected_ids = random.sample(self.topic_ids, k)
-        
-        # Generate realistic scores that sum to something reasonable
-        base_scores = np.random.exponential(scale=0.3, size=k)  # Exponential distribution
-        base_scores = np.sort(base_scores)[::-1]  # Sort descending
-        
-        # Normalize to reasonable range [0.1, 0.9]
-        scores = {}
-        for i, topic_id in enumerate(selected_ids):
-            score = min(0.9, max(0.1, base_scores[i]))
-            scores[str(topic_id)] = float(score)
+        labels = getattr(self, "topic_labels", []) or [str(tid) for tid in self.topic_ids]
+        k = min(5, len(labels)) or 5
+        chos = random.sample(labels, k) if labels else [f"Topic {i}" for i in range(k)]
+        base = np.sort(np.random.exponential(scale=0.3, size=k))[::-1]
+        scores = {chos[i]: float(min(0.9, max(0.1, base[i]))) for i in range(k)}
         
         return scores
     
@@ -443,7 +464,7 @@ class IntegratedEventHandler(EventHandler):
         except Exception as e:
             self.logger.error(f"Error saving checkpoint: {e}")
 
-
+# ----------------------------------------------------------------------
 def run_stream(
     reader: Iterable[Event],
     handler: EventHandler,
@@ -475,7 +496,12 @@ def setup_preprocessing():
         force_rebuild = os.environ.get("PREPROCESS_FORCE") == "1"
         if not tgn_file.exists() or force_rebuild:
             logger.info("Running preprocessing (build_tgn)...")
-            build_tgn()
+            build_tgn(
+                events_path=str(events_file),
+                output_path=str(tgn_file),
+                force=True
+            )
+
         else:
             logger.info("TGN file exists, skipping preprocessing")
     except Exception as e:
@@ -503,7 +529,11 @@ def periodic_preprocessing():
             
             if should_rebuild:
                 logger.info("Running periodic preprocessing (build_tgn)...")
-                build_tgn()
+                build_tgn(
+                    events_path=str(events_file),
+                    output_path=str(tgn_file),
+                    force=True
+                )
                 logger.info("Periodic preprocessing completed successfully")
         except Exception as e:
             logger.error(f"Periodic preprocessing failed: {e}")
@@ -681,7 +711,7 @@ def signal_handler(signum, frame):
     # Also signal the runtime glue if it exists
     if runtime_glue_instance is not None:
         runtime_glue_instance.set_shutdown()
-
+# ----------------------------------------------------------------------
 
 def main(yaml_config_path: str = None):
     """Main entry point with RuntimeGlue integration."""
@@ -749,6 +779,7 @@ def main(yaml_config_path: str = None):
     # Configure RuntimeGlue
     config = RuntimeConfig.from_yaml(yaml_config_path)
     runtime_glue = RuntimeGlue(event_handler, config)
+    event_handler.runtime_glue = runtime_glue  # allow handler to call update_topic_labels() safely later
     runtime_glue_instance = runtime_glue  # Store for signal handler
     
     logger.info(f"Configuration: {config.__dict__}")
