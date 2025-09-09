@@ -165,4 +165,3 @@ datasets/emergence_labels.log
 datasets/metrics_lookup.json
 datasets/checkpoint_*.pt
 datasets/final_checkpoint.pt
-datasets/tgn_edges_basic.npz
