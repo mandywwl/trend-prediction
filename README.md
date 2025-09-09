@@ -160,6 +160,7 @@ python tests/integration/run_ingestion_sim.py
 ```bash
 # Build TGN edge file from collected events
 python -c "from data_pipeline.processors.preprocessing import build_tgn; build_tgn()"
+python -m data_pipeline.processors.preprocessing # OR run script directly from module
 
 # Generate meaningful topic labels from textual examples
 python scripts/update_topic_labels.py
@@ -184,6 +185,7 @@ streamlit run dashboard/app.py --server.runOnSave true
 # Test individual panels
 python -m dashboard.components.topk
 python -m dashboard.components.latency
+python -m dashboard.components.robustness
 ```
 
 ### Project Structure
