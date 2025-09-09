@@ -13,6 +13,7 @@ from typing import Optional, Callable, Any
 from utils.logging import get_logger
 from utils.datetime import utc_now
 from data_pipeline.storage.database import EventDatabase
+from model.training.train import train_tgn_from_npz
 
 logger = get_logger(__name__)
 
@@ -26,6 +27,7 @@ class TrainingScheduler:
         datasets_dir: Path,
         training_interval_hours: int = 168,  # 1 week = 168 hours
         min_events_for_training: int = 100,
+        on_new_checkpoint: Optional[Callable[[Path], None]] = None,
     ):
         """Initialize the training scheduler.
         
@@ -39,7 +41,7 @@ class TrainingScheduler:
         self.datasets_dir = Path(datasets_dir)
         self.training_interval = timedelta(hours=training_interval_hours)
         self.min_events = min_events_for_training
-        
+        self.on_new_checkpoint = on_new_checkpoint
         self.last_training_time: Optional[datetime] = None
         self.is_running = False
         self._thread: Optional[threading.Thread] = None
@@ -112,11 +114,22 @@ class TrainingScheduler:
             
             # Run preprocessing to generate TGN data
             self._run_preprocessing(events_file)
+
+            # Train the model
+            npz_path = self.datasets_dir / "tgn_edges_basic.npz"
+            ckpt_out = self.datasets_dir / "tgn_model.pt"
+
+            if npz_path.exists():
+                # uses your trainer from model.training.train
+                train_tgn_from_npz(str(npz_path), str(ckpt_out), epochs=8, device="cpu")
+                # tell the running app to reload weights (main.py provides this)
+                if self.on_new_checkpoint is not None:
+                    self.on_new_checkpoint(ckpt_out)
+                self.last_training_time = utc_now()
+                logger.info(f"Training completed successfully with {event_count} events")
+            else:
+                logger.error(f"No NPZ at {npz_path}; skipping model training")
             
-            # Update last training time
-            self.last_training_time = utc_now()
-            
-            logger.info(f"Training completed successfully with {event_count} events")
             
         except Exception as e:
             logger.error(f"Training failed: {e}")
@@ -185,6 +198,8 @@ class TrainingScheduler:
             except Exception:
                 pass
     
+       
+
     def force_training(self) -> None:
         """Force immediate training regardless of schedule."""
         logger.info("Forcing immediate model training...")

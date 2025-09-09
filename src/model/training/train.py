@@ -9,53 +9,19 @@ from model.training.noise_injection import inject_noise
 from config.schemas import Batch
 from config.config import LABEL_SMOOTH_EPS
 from utils.path_utils import find_repo_root
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 
-
-def smooth_labels(
-    target: torch.Tensor, num_classes: int, eps: float = LABEL_SMOOTH_EPS
-) -> torch.Tensor:
-    """Apply label smoothing to class indices or one-hot labels.
-
+def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: str = "cpu") -> None:
+    """ Train a TGN model from an NPZ dataset and save the checkpoint.
     Args:
-        target: Tensor of class indices or one-hot encoded labels.
-        num_classes: Number of classes.
-        eps: Smoothing factor ``ε``.
-
-    Returns:
-        Smoothed label distribution with shape ``(..., num_classes)``.
+        npz_path: Path to the NPZ file containing the dataset.
+        ckpt_out: Path to save the trained model checkpoint.
+        epochs: Number of training epochs.
+        device: Device to run the training on ("cpu" or "cuda").
+    
     """
-    if target.dim() == 1 or target.shape[-1] != num_classes:
-        target = F.one_hot(target.long(), num_classes=num_classes).float()
-    return (1.0 - eps) * target + eps / num_classes
-
-
-def smoothed_cross_entropy(
-    logits: torch.Tensor,
-    target: torch.Tensor,
-    num_classes: int,
-    eps: float = LABEL_SMOOTH_EPS,
-) -> torch.Tensor:
-    """Cross-entropy with label smoothing.
-
-    Args:
-        logits: Logits tensor of shape ``(N, C)``.
-        target: Class indices or one-hot labels.
-        num_classes: Number of classes ``C``.
-        eps: Smoothing factor ``ε``.
-
-    Returns:
-        Mean cross-entropy loss with label smoothing applied.
-    """
-    smoothed = smooth_labels(target, num_classes, eps)
-    log_probs = F.log_softmax(logits, dim=-1)
-    loss = -(smoothed * log_probs).sum(dim=-1)
-    return loss.mean()
-
-
-if __name__ == "__main__":
-    # Example training loop demonstrating usage of smoothed cross-entropy.
     repo_root = find_repo_root()
     data_dir = repo_root / "datasets" / "tgn_edges_basic.npz"
     data = np.load(data_dir, allow_pickle=True)
@@ -141,3 +107,68 @@ if __name__ == "__main__":
             model.memory.update_state(src_i, dst_i, t_event, edge_feat)
 
         print(f"Epoch {epoch} - Loss: {total_loss / (len(src) - 1):.4f}")
+
+        # after training:
+        ckpt = Path(ckpt_out)
+        ckpt.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(model.state_dict(), ckpt)
+
+
+def smooth_labels(
+    target: torch.Tensor, num_classes: int, eps: float = LABEL_SMOOTH_EPS
+) -> torch.Tensor:
+    """Apply label smoothing to class indices or one-hot labels.
+
+    Args:
+        target: Tensor of class indices or one-hot encoded labels.
+        num_classes: Number of classes.
+        eps: Smoothing factor ``ε``.
+
+    Returns:
+        Smoothed label distribution with shape ``(..., num_classes)``.
+    """
+    if target.dim() == 1 or target.shape[-1] != num_classes:
+        target = F.one_hot(target.long(), num_classes=num_classes).float()
+    return (1.0 - eps) * target + eps / num_classes
+
+
+def smoothed_cross_entropy(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    num_classes: int,
+    eps: float = LABEL_SMOOTH_EPS,
+) -> torch.Tensor:
+    """Cross-entropy with label smoothing.
+
+    Args:
+        logits: Logits tensor of shape ``(N, C)``.
+        target: Class indices or one-hot labels.
+        num_classes: Number of classes ``C``.
+        eps: Smoothing factor ``ε``.
+
+    Returns:
+        Mean cross-entropy loss with label smoothing applied.
+    """
+    smoothed = smooth_labels(target, num_classes, eps)
+    log_probs = F.log_softmax(logits, dim=-1)
+    loss = -(smoothed * log_probs).sum(dim=-1)
+    return loss.mean()
+
+# NOTE: For quick testing of training loop only.  
+if __name__ == "__main__":
+    repo_root = find_repo_root()
+    npz_path  = repo_root / "datasets" / "tgn_edges_basic.npz"
+    ckpt_out  = repo_root / "datasets" / "tgn_model.pt"
+
+    if not npz_path.exists():
+        raise FileNotFoundError(
+            f"Missing {npz_path}. Run the service to generate events, then preprocess to create it."
+        )
+
+    ckpt_out.parent.mkdir(parents=True, exist_ok=True)
+
+    # Use CUDA if available, otherwise CPU
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    train_tgn_from_npz(str(npz_path), str(ckpt_out), epochs=8, device=device)
+    print(f"[train.py] Saved checkpoint → {ckpt_out}")

@@ -13,6 +13,7 @@ import random
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 from datetime import datetime, timezone
+from service.services.inference.tgn_service import TGNInferenceService
 
 
 from utils.path_utils import find_repo_root
@@ -288,7 +289,7 @@ class IntegratedEventHandler(EventHandler):
     
     Extends EventHandler with graph building and checkpoint functionality.
     """
-    def __init__(self, embedder, graph_builder, spam_scorer, sensitivity_controller):
+    def __init__(self, embedder, graph_builder, spam_scorer, sensitivity_controller, service=None):
         # Create the inference function for the parent EventHandler
         def _infer_into_graph(event):
             graph_builder.process_event(event)
@@ -299,6 +300,7 @@ class IntegratedEventHandler(EventHandler):
             infer=_infer_into_graph,
             spam_scorer=spam_scorer,
             sensitivity=sensitivity_controller,
+            service=service, # keep a reference for on_event
         )
         self.runtime_glue = None
         
@@ -327,17 +329,27 @@ class IntegratedEventHandler(EventHandler):
             timer.end_stage('ingest')
 
             timer.start_stage('preprocess')
-
-            # Process through parent handler (includes embedding)
-            super().handle(event)
+            super().handle(event) # embeddings + spam weight
             timer.end_stage('preprocess')
 
             timer.start_stage('model_update_forward')
+            if self._service is not None:
+                # --- Real model inference ---
+                tgn_out = self._service.update_and_score(event)  # {'emergence_probability', 'growth_rate', 'diffusion_score'}
+                # Persist raw TGN metrics on the event for downstream consumers (e.g., dashboard panes)
+                event.setdefault("tgn_metrics", {}).update(tgn_out)
 
-            # Generate prediction scores using existing topic IDs from topic_lookup.json
-            scores = self._generate_realistic_scores(event)
+                # For RuntimeGlue’s P@K, return a topic->score map.
+                # Use the stable topic for this event and score it by emergence probability
+                # (works well as a single-number ranking signal).
+                from service.runtime_glue import RuntimeGlue  # for stable id hashing via glue if needed
+                topic_label = event.get("text") or event.get("content_id") or "unknown_topic"
+                scores = {str(topic_label): float(tgn_out["emergence_probability"])}
+            else:
+                # Fallback: keep the current simulated scores while model is not ready
+                scores = self._generate_realistic_scores(event)
+
             timer.end_stage('model_update_forward')
-
             timer.start_stage('postprocess')
 
             # refresh topic labels every 100 events (only if glue is available)
@@ -715,22 +727,89 @@ def signal_handler(signum, frame):
 
 def main(yaml_config_path: str = None):
     """Main entry point with RuntimeGlue integration."""
-    global runtime_glue_instance
-    
-    logger.info("Starting unified trend prediction service...")
+
+    setup_preprocessing()
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+    # Initialize components
+    logger.info("Initializing components...")
+    spam_scorer = SpamScorer()
+    graph_builder = GraphBuilder(spam_scorer=spam_scorer)
+    sensitivity_controller = SensitivityController()
+    embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
+
+    # Try to load a trained checkpoint if present
+    ckpt_path = DATA_DIR / "tgn_model.pt"
+    tgn_service = None
+    try:
+        if ckpt_path.exists():
+            tgn_service = TGNInferenceService(
+                checkpoint_path=str(ckpt_path), 
+                device="cpu", 
+                log_dir=str(DATA_DIR)
+            )
+            logger.info(f"Loaded TGN checkpoint: {ckpt_path}")
+        else:
+            logger.warning(f"No TGN checkpoint at {ckpt_path}; running with service=None until trained.")
+    except Exception as e:
+        logger.error(f"Failed to initialize TGNInferenceService: {e}")
+
+    # Create integrated event handler with live TGN service
+    event_handler = IntegratedEventHandler(
+        embedder=embedder,
+        graph_builder=graph_builder,
+        spam_scorer=spam_scorer,
+        sensitivity_controller=sensitivity_controller,
+        service=tgn_service,
+    )
+
+    # ---------------------- Helper  ----------------------
+    from pathlib import Path
+    def _reload_ckpt(p: Path) -> None:
+        """Hot-reload (or late-init) the TGN service after retraining."""
+        try:
+            nonlocal tgn_service, event_handler
+            if tgn_service is None:
+                # late init on first checkpoint
+                tgn_service = TGNInferenceService(checkpoint_path=str(p), device="cpu", log_dir=str(DATA_DIR))
+                event_handler._service = tgn_service          # ensure handler uses it
+                event_handler.tgn_service = tgn_service        # if you keep this alias elsewhere
+                logger.info(f"Initialized TGN service with checkpoint: {p}")
+            else:
+                # hot reload
+                if hasattr(tgn_service, "reload_checkpoint"):
+                    tgn_service.reload_checkpoint(str(p))
+                else:
+                    # fallback if method not implemented
+                    tgn_service = TGNInferenceService(checkpoint_path=str(p), device="cpu", log_dir=str(DATA_DIR))
+                    event_handler._service = tgn_service
+                    event_handler.tgn_service = tgn_service
+                logger.info(f"Reloaded TGN checkpoint: {p}")
+        except Exception as e:
+            logger.error(f"Failed to (re)load TGN checkpoint: {e}")
+    # --------------------------------------------------------------------
+
+    # Run initial topic labeling to ensure meaningful labels exist
+    logger.info("Running initial topic labeling pipeline...")
+    try:
+        event_handler._refresh_topic_labels()
+    except Exception as e:
+        logger.warning(f"Initial topic labeling failed: {e}")
     
-    # Setup preprocessing
-    setup_preprocessing()
+    # Configure RuntimeGlue
+    config = RuntimeConfig.from_yaml(yaml_config_path)
+    runtime_glue = RuntimeGlue(event_handler, config)
+    event_handler.runtime_glue = runtime_glue  # allow handler to call update_topic_labels() safely later
+    global runtime_glue_instance
+    runtime_glue_instance = runtime_glue  # Store for signal handler
     
-    # Initialize training scheduler and hourly collector
-    logger.info("Initializing training scheduler and hourly collector...")
+    logger.info(f"Configuration: {config.__dict__}")
+
     training_scheduler = None
     hourly_collector = None
-    
     if event_database:
         try:
             from service.training_scheduler import TrainingScheduler, HourlyDataCollector
@@ -753,36 +832,6 @@ def main(yaml_config_path: str = None):
             logger.info("Training scheduler and hourly collector started")
         except Exception as e:
             logger.error(f"Failed to initialize training components: {e}")
-    
-    # Initialize components
-    logger.info("Initializing components...")
-    spam_scorer = SpamScorer()
-    graph_builder = GraphBuilder(spam_scorer=spam_scorer)
-    sensitivity_controller = SensitivityController()
-    embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
-    
-    # Create integrated event handler
-    event_handler = IntegratedEventHandler(
-        embedder=embedder,
-        graph_builder=graph_builder,
-        spam_scorer=spam_scorer,
-        sensitivity_controller=sensitivity_controller
-    )
-    
-    # Run initial topic labeling to ensure meaningful labels exist
-    logger.info("Running initial topic labeling pipeline...")
-    try:
-        event_handler._refresh_topic_labels()
-    except Exception as e:
-        logger.warning(f"Initial topic labeling failed: {e}")
-    
-    # Configure RuntimeGlue
-    config = RuntimeConfig.from_yaml(yaml_config_path)
-    runtime_glue = RuntimeGlue(event_handler, config)
-    event_handler.runtime_glue = runtime_glue  # allow handler to call update_topic_labels() safely later
-    runtime_glue_instance = runtime_glue  # Store for signal handler
-    
-    logger.info(f"Configuration: {config.__dict__}")
     
     # Variables for cleanup
     training_scheduler_ref = training_scheduler

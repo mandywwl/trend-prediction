@@ -155,6 +155,13 @@ class TGNInferenceService:
             self.model.load_state_dict(cleaned, strict=False)
 
     # ------------------------------------------------------------------
+    def reload_checkpoint(self, path: str | Path) -> None:
+        """Hot-reload weights at runtime."""
+        self._load_checkpoint(path)
+        self.model.eval()
+
+
+    # ------------------------------------------------------------------
     def _parse_ts(self, ts_iso: str) -> float:
         try:
             return timestamp_to_seconds(ts_iso)
