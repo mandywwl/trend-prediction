@@ -1,5 +1,26 @@
 """Project-wide configuration constants."""
 
+from pathlib import Path
+from utils.path_utils import find_repo_root
+
+# Base directory configuration
+PROJECT_ROOT = find_repo_root()
+DATA_DIR = PROJECT_ROOT / "datasets"
+LOGS_DIR = PROJECT_ROOT / "logs"
+
+# TGN model defaults
+TGN_MEMORY_DIM: int = 100
+TGN_TIME_DIM: int = 10
+TGN_EDGE_DIM: int = 768  # Default to DistilBERT hidden size
+INFERENCE_DEVICE: str = "cpu"  # "cpu" or "cuda"
+MAX_NODES: int = 1_000_000  # example cap; keep current behaviour if not used
+
+# Text embedding policy for missing text features
+DEFAULT_TEXT_EMB_POLICY: str = "zeros"  # "zeros" | "mean" | "learned_unknown"
+
+# Service configuration
+DEFAULT_EMBED_BUDGET_MS = 50
+
 # Online evaluation
 DELTA_HOURS: int = 2  # Δ
 WINDOW_MIN: int = 60  # W
@@ -23,16 +44,13 @@ EDGE_WEIGHT_MIN: float = 0.2  # clamp for down-weighting
 
 # Synthetic noise injection
 NOISE_P_DEFAULT: float = 0.08
-NOISE_JITTER_MIN_MIN: int = 3
-NOISE_JITTER_MAX_MIN: int = 10
+NOISE_JITTER_MIN_MIN: float = 1.0
+NOISE_JITTER_MAX_MIN: float = 15.0
 
 # Training objectives
 HUBER_DELTA_DEFAULT: float = 1.0
 LABEL_SMOOTH_EPS: float = 0.05
 
-# Limits / guards
-MAX_NODES: int = 1_000_000  # example cap; keep current behaviour if not used
-DEFAULT_TEXT_EMB_POLICY: str = "zeros"  # "zeros" | "mean" | "learned_unknown"
 
 # IO paths (keep existing if already defined elsewhere)
 METRICS_SNAPSHOT_DIR: str = "datasets/metrics_hourly"
@@ -49,3 +67,5 @@ BUCKET_TZ: str = "UTC"
 # Realtime embedding service guards
 EMBED_MAX_BACKLOG: int = 32
 EMBED_MAX_TOKENS: int = 32
+
+

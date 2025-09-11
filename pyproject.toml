@@ -84,7 +84,6 @@ dependencies = [
 package-dir = {"" = "src"}
 packages = [
     "config",
-    "config.environments", 
     "data_pipeline",
     "data_pipeline.collectors",
     "data_pipeline.processors", 
