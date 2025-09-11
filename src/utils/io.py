@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 import numpy as np
 
-from config.config import SLO_MED_MS, SLO_P95_MS, BUCKET_TZ, METRICS_SNAPSHOT_DIR
+from config.config import (
+    SLO_MED_MS, 
+    SLO_P95_MS, 
+    BUCKET_TZ, 
+    METRICS_SNAPSHOT_DIR,
+)
 from config.schemas import LatencySummary, HourlyMetrics, StageMs
 
 
@@ -151,8 +156,8 @@ class LatencyAggregator:
 class MetricsWriter:
     """Handles writing hourly metrics snapshots."""
     
-    def __init__(self):
-        self.base_dir = Path(METRICS_SNAPSHOT_DIR)
+    def __init__(self, base_dir: Path | None = None):
+        self.base_dir = Path(base_dir) if base_dir is not None else METRICS_SNAPSHOT_DIR
         ensure_dir(self.base_dir)
     
     def write_hourly_snapshot(self, ts_hour: datetime, payload: HourlyMetrics):

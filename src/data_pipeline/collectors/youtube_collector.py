@@ -1,10 +1,11 @@
 from googleapiclient.discovery import build
 from datetime import datetime, timezone
 import time
+from config.config import REGIONS
 
 
 def start_youtube_api_collector(
-    api_key, on_event=None, categories=None, max_results=50, region_code="US", delay=1.0
+    api_key, on_event=None, categories=None, max_results=50, region_code= REGIONS[0], delay=1.0 #TODO: Multi-region support
 ):
     """
     Start collecting trending YouTube videos using the YouTube Data API.

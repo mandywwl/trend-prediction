@@ -5,20 +5,10 @@ Visualizes per-hour median/p95 latency metrics and surfaces SLO breaches.
 """
 
 import json
-import os
-from datetime import datetime, timedelta, timezone
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import sys
-
-import streamlit as st
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-
-# Add src to path for imports
-src_path = Path(__file__).parent.parent.parent / "src"
-sys.path.insert(0, str(src_path))
-
 from config.config import SLO_MED_MS, SLO_P95_MS, METRICS_SNAPSHOT_DIR
 from config.schemas import HourlyMetrics, LatencySummary, StageMs
 from layouts.layout import (
@@ -28,27 +18,35 @@ from layouts.layout import (
     apply_custom_css,
 )
 
+import streamlit as st
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
-def _load_hourly_metrics(metrics_dir: str) -> List[Tuple[datetime, HourlyMetrics]]:
+# Add src to path for imports
+src_path = Path(__file__).parent.parent.parent / "src"
+sys.path.insert(0, str(src_path))
+
+
+
+def _load_hourly_metrics(metrics_dir: Optional[Path | str] = None) -> List[Tuple[datetime, HourlyMetrics]]:
     """
     Load hourly metrics files from the metrics directory.
     
     Args:
-        metrics_dir: Path to metrics directory
+        metrics_dir: Path | str | None
         
     Returns:
         List of (timestamp, metrics) tuples sorted by timestamp
     """
-    metrics_path = Path(metrics_dir)
+    metrics_path = Path(metrics_dir) if metrics_dir is not None else METRICS_SNAPSHOT_DIR
     if not metrics_path.exists():
         return []
-    
     metrics_data = []
     
     # Look for metrics files matching pattern metrics_YYYYMMDD_HH.json
     for file_path in metrics_path.glob("metrics_*.json"):
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, 'r', encoding="utf-8") as f:
                 data = json.load(f)
             
             # Extract timestamp from filename
@@ -179,7 +177,7 @@ def _render_latency_chart(data: List[Tuple[datetime, LatencySummary]]) -> plt.Fi
                label=f'P95 SLO ({SLO_P95_MS}ms)')
     
     # Formatting
-    ax.set_title("Latency Trends (Last 24h)")
+    ax.set_title("Latency Trends Over Time")
     ax.set_ylabel("Latency (ms)")
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -196,7 +194,7 @@ def _render_latency_chart(data: List[Tuple[datetime, LatencySummary]]) -> plt.Fi
 
 def render_panel(
     *,
-    metrics_dir: Optional[str] = None
+    metrics_dir: Optional[Path | str] = None
 ) -> Dict[str, Any]:
     """
     Render the latency monitoring panel.
@@ -219,13 +217,10 @@ def render_panel(
     # Header
     st.header("⏱️ Latency & SLOs")
     
-    # Use default metrics directory if not provided
+     # Load metrics data
     if metrics_dir is None:
         metrics_dir = METRICS_SNAPSHOT_DIR
-    
-    # Load metrics data
     metrics_data = _load_hourly_metrics(metrics_dir)
-    
     if not metrics_data:
         st.warning("⚠️ No latency metrics found. Check if metrics are being collected.")
         return {

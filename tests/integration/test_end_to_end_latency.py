@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Comprehensive end-to-end test of the real latency measurement system."""
 
 import sys

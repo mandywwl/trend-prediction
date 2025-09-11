@@ -6,7 +6,6 @@ Use `render_panel()` to get the Streamlit component for Top-K live predictions.
 """
 
 import json
-import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -15,13 +14,14 @@ import streamlit as st
 from config.config import (
     PREDICTIONS_CACHE_PATH,
     DELTA_HOURS,
+    K_DEFAULT,
     K_OPTIONS,
     TOPIC_LOOKUP_PATH,
 )
 from config.schemas import PredictionsCache, CacheItem
 
 
-def _load_predictions_cache(cache_path: str | os.PathLike[str]) -> Optional[PredictionsCache]:
+def _load_predictions_cache(cache_path: Path | str) -> Optional[PredictionsCache]:
     """Load predictions cache from JSON file."""
     try:
         cache_file = Path(cache_path)
@@ -38,7 +38,7 @@ def _load_predictions_cache(cache_path: str | os.PathLike[str]) -> Optional[Pred
         return None
 
 
-def _load_topic_lookup(path: str | os.PathLike[str]) -> Dict[str, str]:
+def _load_topic_lookup(path: Path | str) -> Dict[str, str]:
     """Load topic ID to label mapping."""
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -120,15 +120,15 @@ def render_panel() -> Dict[str, Any]:
     
     # K selector
     col1, col2 = st.columns([1, 3])
-    
+    k_options = list(K_OPTIONS)
+    default_index = k_options.index(K_DEFAULT) if K_DEFAULT in k_options else 0
     with col1:
         selected_k = st.selectbox(
             "Top K:",
             options=list(K_OPTIONS),
-            index=0,
+            index=default_index,
             help=f"Show top K predictions (options: {K_OPTIONS})"
         )
-    
     with col2:
         # Cache info
         last_updated = cache.get('last_updated', 'Unknown')

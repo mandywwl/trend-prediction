@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Direct test of latency integration code modifications without heavy dependencies."""
 
 import sys

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -7,13 +7,27 @@ import torch.nn.functional as F
 from model.core.tgn import TGNModel
 from model.training.noise_injection import inject_noise
 from config.schemas import Batch
-from config.config import LABEL_SMOOTH_EPS
+from config.config import (
+    DATA_DIR,
+    LABEL_SMOOTH_EPS,
+    NOISE_P_DEFAULT,
+    TGN_MEMORY_DIM,
+    TGN_TIME_DIM,
+    TGN_LR,
+    TGN_EDGE_DIM,
+    INFERENCE_DEVICE,
+)
 from utils.path_utils import find_repo_root
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 
-def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: str = "cpu") -> None:
+def train_tgn_from_npz(npz_path: str, ckpt_out: str, 
+                       epochs: int = 8, 
+                       device: str = INFERENCE_DEVICE,
+                       noise_p: float | None = None,
+                       noise_seed: int | None = None
+                       ) -> None:
     """ Train a TGN model from an NPZ dataset and save the checkpoint.
     Args:
         npz_path: Path to the NPZ file containing the dataset.
@@ -22,9 +36,7 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: st
         device: Device to run the training on ("cpu" or "cuda").
     
     """
-    repo_root = find_repo_root()
-    data_dir = repo_root / "datasets" / "tgn_edges_basic.npz"
-    data = np.load(data_dir, allow_pickle=True)
+    data = np.load(npz_path, allow_pickle=True)
 
     src_arr = data["src"]
     dst_arr = data["dst"]
@@ -39,7 +51,7 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: st
         events.append(
             {
                 "event_id": str(i),
-                "ts_iso": datetime.utcfromtimestamp(float(t_arr[i])).isoformat(),
+                "ts_iso": datetime.utcfromtimestamp(float(t_arr[i])).replace(tzinfo=timezone.utc).isoformat(),
                 "actor_id": str(src_arr[i]),
                 "target_ids": [str(dst_arr[i])],
                 "edge_type": "edge",
@@ -47,39 +59,35 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: st
             }
         )
 
-    events = inject_noise(events, seed=0)
+    events = inject_noise(events, p=(noise_p if noise_p is not None else NOISE_P_DEFAULT),
+                          seed=noise_seed)
+
+    dev = torch.device(device)
 
     src = torch.LongTensor([int(e["actor_id"]) for e in events])
     dst = torch.LongTensor([int(e["target_ids"][0]) for e in events])
-    t = torch.FloatTensor([
-        datetime.fromisoformat(e["ts_iso"]).timestamp() for e in events
-    ])
-    edge_attr_list = []
-    for e in events:
-        emb = e.get("features", {}).get("text_emb")
-        if emb is None:
-            emb = np.zeros(EDGE_DIM, dtype=np.float32)
-        edge_attr_list.append(emb)
-    # edge_attr = torch.FloatTensor(edge_attr_list)
+    src, dst = src.to(dev), dst.to(dev)
+    t = torch.FloatTensor([datetime.fromisoformat(e["ts_iso"]).timestamp() for e in events]).to(dev)
     edge_attr = torch.from_numpy(
-        np.stack(edge_attr_list, dtype=np.float32)
-    )
+        np.stack([e["features"]["text_emb"] for e in events], axis=0)
+    ).to(dev)
 
-    MEM_DIM = 100
-    TIME_DIM = 10
-    EDGE_DIM = edge_attr.shape[1]
-
+    MEM_DIM = TGN_MEMORY_DIM
+    TIME_DIM = TGN_TIME_DIM
+    EDGE_DIM = edge_attr.shape[1] if edge_attr.ndim == 2 else TGN_EDGE_DIM
+    
     model = TGNModel(
         num_nodes=num_nodes,
         node_feat_dim=node_feats.shape[1],
         edge_feat_dim=EDGE_DIM,
         time_dim=TIME_DIM,
         memory_dim=MEM_DIM,
-    )
+    ).to(dev)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=TGN_LR)
 
-    for epoch in range(8):  # TODO: Increase for actual training
+    
+    for epoch in range(epochs): 
         model.reset_memory()
         total_loss = 0.0
 
@@ -88,7 +96,7 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: st
             dst_i = dst[i].unsqueeze(0).long()
             t_i = t[i].unsqueeze(0)
             edge_feat = edge_attr[i].unsqueeze(0)
-            label = torch.tensor([1])  # TODO: replace with actual label
+            label = torch.tensor([1])  # TODO: replace with actual per-edge label
 
             # TGN decoder outputs [emergence_logit, growth, diffusion].
             # For the classification loss we only want a single binary logit.
@@ -107,11 +115,19 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str, epochs: int = 8, device: st
             model.memory.update_state(src_i, dst_i, t_event, edge_feat)
 
         print(f"Epoch {epoch} - Loss: {total_loss / (len(src) - 1):.4f}")
-
-        # after training:
-        ckpt = Path(ckpt_out)
-        ckpt.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(model.state_dict(), ckpt)
+    # after training:
+    ckpt_payload = {
+        "state_dict": model.state_dict(),
+        "hparams": {
+            "num_nodes": int(num_nodes),
+            "memory_dim": int(TGN_MEMORY_DIM),
+            "time_dim": int(TGN_TIME_DIM),
+            "edge_feat_dim": int(EDGE_DIM),
+        }
+    }
+    ckpt_path = Path(ckpt_out)
+    ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(ckpt_payload, ckpt_path)
 
 
 def smooth_labels(
@@ -156,9 +172,8 @@ def smoothed_cross_entropy(
 
 # NOTE: For quick testing of training loop only.  
 if __name__ == "__main__":
-    repo_root = find_repo_root()
-    npz_path  = repo_root / "datasets" / "tgn_edges_basic.npz"
-    ckpt_out  = repo_root / "datasets" / "tgn_model.pt"
+    npz_path  = DATA_DIR / "tgn_edges_basic.npz"
+    ckpt_out  = DATA_DIR / "tgn_model.pt"
 
     if not npz_path.exists():
         raise FileNotFoundError(

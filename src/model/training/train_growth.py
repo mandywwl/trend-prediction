@@ -1,4 +1,4 @@
-"""Growth forecasting training using robust Huber loss.
+""" Optional standalone training/ablation for a Growth-only head that uses Huber;
 
 Delta defaults to HUBER_DELTA_DEFAULT from config, and can be overridden
 via YAML (if provided). Also logs Huber vs MSE loss curves for ablations.

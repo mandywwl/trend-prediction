@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Simple unit test to verify latency measurement integration without heavy dependencies."""
 
 import sys

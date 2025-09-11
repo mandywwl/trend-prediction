@@ -6,7 +6,7 @@ from torch_geometric.nn.models.tgn import (
     LastAggregator,
     TimeEncoder,
 )
-
+from config.config import TGN_DECODER_HIDDEN
 
 class TGNModel(nn.Module):
     def __init__(self, num_nodes, node_feat_dim, edge_feat_dim, time_dim, memory_dim):
@@ -25,14 +25,11 @@ class TGNModel(nn.Module):
             aggregator_module=self.aggregator_module,
         )
 
-        # Decoder now produces three values per edge interaction:
-        #   1. emergence probability
-        #   2. growth rate
-        #   3. diffusion score
+    
         self.decoder = nn.Sequential(
-            nn.Linear(memory_dim * 2 + time_dim, 100),
+            nn.Linear(memory_dim * 2 + time_dim, TGN_DECODER_HIDDEN),
             nn.ReLU(),
-            nn.Linear(100, 3),
+            nn.Linear(TGN_DECODER_HIDDEN, 3),
         )
 
     def forward(self, src, dst, t, edge_attr):

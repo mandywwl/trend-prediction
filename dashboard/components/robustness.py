@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import json
-import os
 
 import matplotlib.pyplot as plt
 
@@ -19,6 +18,8 @@ from config.config import (
     DELTA_HOURS,
     WINDOW_MIN,
     METRICS_SNAPSHOT_DIR,
+    DATA_DIR,
+    EVENT_JSONL_PATH,
 )
 from utils.datetime import parse_iso_timestamp
 
@@ -160,7 +161,7 @@ def _last_24h_filter(snapshots: List[RobustnessSnapshot]) -> List[RobustnessSnap
     if not snapshots:
         return []
     now = datetime.now(tz=timezone.utc)
-    cutoff = now - timedelta(hours=24)
+    cutoff = now - timedelta(hours=24) # last 24h
     return [s for s in snapshots if s.ts >= cutoff]
 
 
@@ -231,8 +232,8 @@ def render_theta_figure(points: List[ThetaPoint]) -> plt.Figure:
 
 def render_panel(
     *,
-    datasets_dir: str | os.PathLike[str] = "datasets",
-    metrics_dir: Optional[str | os.PathLike[str]] = None,
+    datasets_dir: Optional[Path | str] = None,
+    metrics_dir: Optional[Path | str] = None,
 ) -> Dict[str, Any]:
     """Render the robustness panel from logs/metrics.
 
@@ -245,13 +246,13 @@ def render_panel(
         Dict with keys: `figure`, `spam_rate`, `downweighted_pct`, `alert`, `tooltips`.
     """
 
-    base = Path(datasets_dir)
+    base = Path(datasets_dir) if datasets_dir is not None else DATA_DIR
     adaptive_log = base / "adaptive_thresholds.log"
-    events_log = base / "events.jsonl"
+    events_log = EVENT_JSONL_PATH # Prefer config path
 
     # Read sources
     log_snaps = _read_adaptive_log(adaptive_log)
-    met_dir = Path(metrics_dir) if metrics_dir else Path(METRICS_SNAPSHOT_DIR)
+    met_dir = Path(metrics_dir) if metrics_dir is not None else METRICS_SNAPSHOT_DIR
     metrics_snaps = _read_hourly_metrics(met_dir)
 
     # Last 24h θ timeline from logs only (higher resolution)

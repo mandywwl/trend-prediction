@@ -25,6 +25,9 @@ from config.config import (
     K_DEFAULT,
     K_OPTIONS,
     METRICS_SNAPSHOT_DIR,
+    GROWTH_FACTOR_BASE,
+    UNIQUE_USERS_BASE,
+    DATA_DIR
 )
 from config.schemas import PrecisionAtKSnapshot
 from model.inference.adaptive_thresholds import SensitivityController
@@ -63,8 +66,8 @@ class EmergenceLabelBuffer:
         self,
         sensitivity: Optional[SensitivityController] = None,
         *,
-        growth_factor_base: float = 2.0,
-        unique_users_base: int = 50,
+        growth_factor_base = GROWTH_FACTOR_BASE,
+        unique_users_base = UNIQUE_USERS_BASE,
         delta_hours: Optional[int] = None,
         window_min: Optional[int] = None,
         log_path: Path | str | None = None,
@@ -75,9 +78,8 @@ class EmergenceLabelBuffer:
         self.unique_users_base = int(unique_users_base)
         self.delta_hours = int(DELTA_HOURS if delta_hours is None else delta_hours)
         self.window_min = int(WINDOW_MIN if window_min is None else window_min)
-        repo_root = find_repo_root()
         self.log_path = (
-            Path(log_path) if log_path is not None else repo_root / "datasets" / "emergence_labels.log"
+            Path(log_path) if log_path is not None else DATA_DIR / "emergence_labels.log"
         )
 
         self._events: Deque[Tuple[datetime, str]] = deque()

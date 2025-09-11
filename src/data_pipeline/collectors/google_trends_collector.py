@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 import time
 import random
-import json
+
 from pathlib import Path
 
 from utils.text import slugify as _slugify
+from config.config import REGIONS
 
 #TODO: Implement real Google Trends API integration here when available
 
@@ -148,7 +149,7 @@ class RealisticTrendsSimulator:
 
 def start_google_trends_collector(
     on_event=None,
-    region: str = "US",
+    region = REGIONS[0], #US by default #TODO: Multi-region support
     category: str = "all", 
     count: int = 20,
     interval: int = 3600,

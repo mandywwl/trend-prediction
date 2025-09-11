@@ -22,7 +22,13 @@ except Exception:  # pragma: no cover - keep import-time errors lazily
     optuna = None  # type: ignore
 
 from model.core.tgn import TGNModel
-from utils.path_utils import find_repo_root
+from config.config import (
+    DATA_DIR,
+    TGN_TIME_DIM,
+    TGN_MEMORY_DIM,
+    TGN_EDGE_DIM,
+)
+
 
 
 logger = logging.getLogger(__name__)
@@ -35,9 +41,7 @@ def _load_data() -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.nda
     The repository ships without large datasets so this helper generates a
     deterministic synthetic one when the expected ``.npz`` file is absent.
     """
-
-    repo_root = find_repo_root()
-    data_path = repo_root / "datasets" / "tgn_edges_basic.npz"
+    data_path = DATA_DIR/ "tgn_edges_basic.npz"
     if data_path.exists():
         data = np.load(data_path, allow_pickle=True)
         return (
@@ -172,7 +176,7 @@ def tune_hyperparameters(n_trials: int = 20) -> Any:
     study.optimize(objective, n_trials=n_trials)
     logger.info("Best params: %s", study.best_params)
 
-    log_path = Path(__file__).resolve().parent / "tuning_log.json"
+    log_path = DATA_DIR / "tuning_log.json"
     with log_path.open("w", encoding="utf-8") as f:
         json.dump({"best_params": study.best_params, "best_value": study.best_value}, f, indent=2)
 
