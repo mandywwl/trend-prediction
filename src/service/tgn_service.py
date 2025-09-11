@@ -10,22 +10,27 @@ Key features:
 - Missing text embeddings handled via DEFAULT_TEXT_EMB_POLICY.
 - Append-only logging of update and forward latencies.
 """
-
+from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict
 import json
 import time
+import math
 
 import numpy as np
 import torch
 
 from config.config import (
     MAX_NODES,
-    DEFAULT_TEXT_EMB_POLICY,
+    TEXT_EMB_POLICY,
+    TGN_MEMORY_DIM,
+    TGN_TIME_DIM,
+    INFERENCE_DEVICE,
+    TGN_EDGE_DIM,
+
 )
 from config.schemas import Event
-from config.base import DEFAULT_EDGE_DIM
 from model.core.tgn import TGNModel
 from utils.datetime import timestamp_to_seconds
 from utils.io import ensure_dir
@@ -71,35 +76,22 @@ class TGNInferenceService:
         self,
         *,
         checkpoint_path: str | Path | None = None,
-        device: str | torch.device = "cpu",
-        memory_dim: int = 100,
-        time_dim: int = 10,
-        edge_feat_dim: int = DEFAULT_EDGE_DIM,
+        device: str | torch.device = INFERENCE_DEVICE,
+        memory_dim: int = TGN_MEMORY_DIM,
+        time_dim: int = TGN_TIME_DIM,
+        edge_feat_dim: int = TGN_EDGE_DIM,
         log_dir: str | Path = "datasets",
     ) -> None:
-        """Initialize the inference service and load a checkpoint if provided.
-
-        Args:
-            checkpoint_path: Optional path to model checkpoint (.pt/.pth) with
-                a compatible state_dict.
-            device: Target device. Defaults to CPU for predictable latency.
-            memory_dim: Memory dimension used by TGN.
-            time_dim: Temporal encoding dimension.
-            edge_feat_dim: Expected edge feature dimension (e.g., text_emb
-                size). If None, defaults to 768 (DistilBERT hidden size).
-            log_dir: Directory where append-only logs are written.
-        """
+        """Initialize the inference service and load a checkpoint if provided."""
         self.device = torch.device(device)
-
-        # Default embedding dimension to DistilBERT hidden size when unknown
-        self.edge_dim = int(edge_feat_dim or 768)
+        self.edge_dim = int(edge_feat_dim or TGN_EDGE_DIM or 768)
+        self.policy = TEXT_EMB_POLICY
 
         # Pre-create zero and running mean embeddings for fallback policies
         self._zero_emb = torch.zeros(self.edge_dim, dtype=torch.float32)
         self._mean_emb = torch.zeros(self.edge_dim, dtype=torch.float32)
         self._mean_count = 0
-
-        # Learned unknown embedding (used when DEFAULT_TEXT_EMB_POLICY says so)
+        # Learned unknown embedding (used when  TEXT_EMB_POLICY says so)
         self._learned_unknown = torch.nn.Parameter(
             torch.zeros(self.edge_dim, dtype=torch.float32)
         )
@@ -107,12 +99,11 @@ class TGNInferenceService:
         # Model is sized for MAX_NODES capacity; internal mapping enforces LRU
         self.model = TGNModel(
             num_nodes=MAX_NODES,
-            node_feat_dim=0,
             edge_feat_dim=self.edge_dim,
             time_dim=time_dim,
-            memory_dim=memory_dim,
+            memory_dim=memory_dim
         ).to(self.device)
-        # Register learned unknown on same device in case used in forward
+
         self._learned_unknown = self._learned_unknown.to(self.device)
 
         # Load checkpoint if provided
@@ -204,7 +195,7 @@ class TGNInferenceService:
     # ------------------------------------------------------------------
     def _edge_attr_from_features(self, features: dict | None) -> torch.Tensor:
         if not features:
-            policy = DEFAULT_TEXT_EMB_POLICY
+            policy = TEXT_EMB_POLICY
             if policy == "mean" and self._mean_count > 0:
                 return self._mean_emb.to(self.device)
             if policy == "learned_unknown":
@@ -214,7 +205,7 @@ class TGNInferenceService:
         emb = features.get("text_emb") if isinstance(features, dict) else None
 
         if emb is None:
-            policy = DEFAULT_TEXT_EMB_POLICY
+            policy = TEXT_EMB_POLICY
             if policy == "mean" and self._mean_count > 0:
                 return self._mean_emb.to(self.device)
             if policy == "learned_unknown":
