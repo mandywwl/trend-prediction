@@ -13,51 +13,68 @@ import random
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 from datetime import datetime, timezone
-from service.services.inference.tgn_service import TGNInferenceService
+from service.tgn_service import TGNInferenceService
+from service.runtime_glue import RuntimeGlue, RuntimeConfig
+from model.inference.spam_filter import SpamScorer
+from model.inference.adaptive_thresholds import SensitivityController
 
+from utils.io import ensure_dir
+from utils.logging import get_logger, service_logger, setup_logging
+from config.config import (
+    PROJECT_ROOT,
+    TOPIC_LOOKUP_PATH,
+    EVENT_JSONL_PATH,
+    INFERENCE_DEVICE,
+    DATA_DIR,
+    DATABASE_PATH,
+    KEYWORDS,
+    DEFAULT_TRENDING_TOPICS,
+    TWITTER_SIM_EVENTS_PER_BATCH,
+    TWITTER_SIM_BATCH_INTERVAL,
+    REGIONS,
+    TRENDS_CATEGORY,
+    TRENDS_COUNT,
+    TRENDS_INTERVAL_SEC,
+    EVENT_MAX_LOG_BYTES,
+    EMBEDDER_BATCH_SIZE,
+    EMBEDDER_MAX_LATENCY_MS,
+    EMBED_PREPROC_BUDGET_MS,
+    TRAINING_INTERVAL_HOURS,
+    MIN_EVENTS_FOR_TRAINING,
+    TOPIC_REFRESH_EVERY,
+    TOPIC_REFRESH_SECS,
+    PERIODIC_REBUILD_SECS
 
-from utils.path_utils import find_repo_root
-
-# Load environment variables from .env file
-project_root = find_repo_root()
-try:
-    from dotenv import load_dotenv
-    load_dotenv(project_root / ".env")
-except ImportError:
-    print("Warning: python-dotenv not installed. Please install it with: pip install python-dotenv")
-
-# Ensure we can import from src
-src_path = project_root / "src"
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
-
-# Pipeline imports
+)
+from config.schemas import Event, Features
 from data_pipeline.collectors.twitter_collector import start_twitter_stream, realistic_fake_twitter_stream, enhanced_fake_twitter_stream
 from data_pipeline.collectors.youtube_collector import start_youtube_api_collector
 from data_pipeline.collectors.google_trends_collector import start_google_trends_collector, fake_google_trends_stream
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
 from data_pipeline.storage.builder import GraphBuilder
-from model.inference.spam_filter import SpamScorer
-from model.inference.adaptive_thresholds import SensitivityController
-from service.runtime_glue import RuntimeGlue, RuntimeConfig
-from utils.io import ensure_dir
-from utils.logging import get_logger, service_logger, setup_logging
-from config.schemas import Event, Features
-from config.config import EMBED_PREPROC_BUDGET_MS
+
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    print("Warning: python-dotenv not installed. Please install it with: pip install python-dotenv")
+
+# Ensure we can import from src
+src_path = PROJECT_ROOT / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 # Setup logging
 setup_logging()
 logger = get_logger(__name__)
-
 try:
     from data_pipeline.processors.preprocessing import build_tgn
 except Exception:
     build_tgn = None
 
-# Configuration
-DATA_DIR = ensure_dir(project_root / "datasets")
-
-# API Keys from environment variables
+# Get API Keys from environment variables
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
@@ -66,36 +83,31 @@ if not YOUTUBE_API_KEY:
     logger.warning("YOUTUBE_API_KEY not set - YouTube collector may not work")
 if not TWITTER_BEARER_TOKEN:
     logger.warning("TWITTER_BEARER_TOKEN not set - Twitter collector may not work")
+if not KEYWORDS:
+    logger.warning("KEYWORDS not set - Twitter/TikTok collector may not work")
 
-# Keywords for Twitter stream
-KEYWORDS = ["#trending", "fyp", "viral"]
 
-# Global state for graceful shutdown
-shutdown_event = threading.Event()
+shutdown_event = threading.Event() # Global state for graceful shutdown
 collectors_running = []
 runtime_glue_instance = None
-
-# Event logging setup
-EVENT_LOG = DATA_DIR / "events.jsonl"
 _event_log_lock = threading.Lock()
-# Ensure the parent directory exists before opening the file
-EVENT_LOG.parent.mkdir(parents=True, exist_ok=True)
-_event_log_fh = open(EVENT_LOG, "a", encoding="utf-8")
-_MAX_LOG_BYTES = 10 * 1024 * 1024  # 10 MB
+EVENT_JSONL_PATH.parent.mkdir(parents=True, exist_ok=True) # Ensure the parent directory exists before opening the file
+_event_log_fh = open(EVENT_JSONL_PATH, "a", encoding="utf-8")
 
 
 def _rotate_event_log() -> None:
     """Rotate the event log when it grows too large."""
     global _event_log_fh
-    rotated = EVENT_LOG.with_name(f"events_{int(time.time())}.jsonl")
+    rotated = EVENT_JSONL_PATH.with_name(f"events_{int(time.time())}.jsonl")
     _event_log_fh.close()
-    os.rename(EVENT_LOG, rotated)
-    _event_log_fh = open(EVENT_LOG, "a", encoding="utf-8")
+    os.rename(EVENT_JSONL_PATH, rotated)
+    _event_log_fh = open(EVENT_JSONL_PATH, "a", encoding="utf-8")
 
 
 def log_event(event: Event) -> None:
     """Append ``event`` to the JSONL event log in a thread-safe manner."""
     global _event_log_fh
+    _MAX_LOG_BYTES = int(EVENT_MAX_LOG_BYTES)
     with _event_log_lock:
         json.dump(event, _event_log_fh)
         _event_log_fh.write("\n")
@@ -103,9 +115,7 @@ def log_event(event: Event) -> None:
         if _event_log_fh.tell() >= _MAX_LOG_BYTES:
             _rotate_event_log()
 
-
 # Database storage
-DATABASE_PATH = DATA_DIR / "events.db"
 try:
     from data_pipeline.storage.database import EventDatabase
     event_database = EventDatabase(DATABASE_PATH)
@@ -123,14 +133,10 @@ def store_event_in_database(event: Event) -> None:
         except Exception as e:
             logger.error(f"Failed to store event in database: {e}")
 
-
 def enhanced_log_event(event: Event) -> None:
     """Enhanced event logging that stores in both JSONL and database."""
-    # Store in JSONL (for backwards compatibility)
-    log_event(event)
-    
-    # Store in database (for new features)
-    store_event_in_database(event)
+    log_event(event) # Store in JSONL for checking
+    store_event_in_database(event) # Store in database
 
 
 class EmbeddingPreprocessor:
@@ -352,21 +358,12 @@ class IntegratedEventHandler(EventHandler):
             timer.end_stage('model_update_forward')
             timer.start_stage('postprocess')
 
-            # refresh topic labels every 100 events (only if glue is available)
-            if self.event_counter % 100 == 0:
-                try:
-                    if getattr(self, "runtime_glue", None) is not None:
-                        self.runtime_glue.update_topic_labels()
-                except Exception as e:
-                    self.logger.warning(f"Skipped topic label refresh: {e}")
-
-
-            # Run periodic preprocessing (every 1000 events to avoid overhead)
+            # Run periodic preprocessing
             if self.event_counter % 1000 == 0:
                 periodic_preprocessing()
 
-            REFRESH_EVERY = int(os.getenv("TOPIC_REFRESH_EVERY", "100"))
-            REFRESH_SECS  = int(os.getenv("TOPIC_REFRESH_SECS",  "900"))  # 15 min backstop
+            REFRESH_EVERY = TOPIC_REFRESH_EVERY
+            REFRESH_SECS  = TOPIC_REFRESH_SECS
             now = datetime.now(timezone.utc)
             backstop_due = (
                 not hasattr(self, "_last_topic_refresh")
@@ -400,7 +397,6 @@ class IntegratedEventHandler(EventHandler):
     
     def _load_topic_lookup(self):
         """Load existing topic lookup for generating realistic scores."""
-        from config.config import TOPIC_LOOKUP_PATH
         self.topic_lookup_path = Path(TOPIC_LOOKUP_PATH)
         self.topic_ids = []
         
@@ -492,7 +488,7 @@ def run_stream(
 def setup_preprocessing():
     """Setup preprocessing if needed."""
     tgn_file = DATA_DIR / "tgn_edges_basic.npz"
-    events_file = EVENT_LOG
+    events_file = EVENT_JSONL_PATH
     
     if not build_tgn:
         logger.info("build_tgn not available; skipping preprocessing")
@@ -523,7 +519,7 @@ def setup_preprocessing():
 
 def periodic_preprocessing():
     """Attempt preprocessing periodically after events have been collected."""
-    events_file = EVENT_LOG
+    events_file = EVENT_JSONL_PATH
     tgn_file = DATA_DIR / "tgn_edges_basic.npz"
     
     if not build_tgn:
@@ -535,9 +531,9 @@ def periodic_preprocessing():
             # Check if we should rebuild (weekly or if file doesn't exist)
             should_rebuild = not tgn_file.exists()
             if tgn_file.exists():
-                # Rebuild weekly (604800 seconds = 1 week)
+                # Rebuild if older than PERIODIC_REBUILD_SECS (default 1 week)
                 file_age = time.time() - tgn_file.stat().st_mtime
-                should_rebuild = file_age > 604800
+                should_rebuild = file_age > PERIODIC_REBUILD_SECS
             
             if should_rebuild:
                 logger.info("Running periodic preprocessing (build_tgn)...")
@@ -579,8 +575,8 @@ def create_event_stream():
             
             # Try to get recent trends from events.jsonl
             try:
-                if EVENT_LOG.exists():
-                    with open(EVENT_LOG, 'r') as f:
+                if EVENT_JSONL_PATH.exists():
+                    with open(EVENT_JSONL_PATH, 'r') as f:
                         recent_lines = f.readlines()[-20:]  # Last 20 events
                         
                     for line in recent_lines:
@@ -597,11 +593,7 @@ def create_event_stream():
             
             # Add some default trending topics if none found
             if not trending_topics:
-                trending_topics = [
-                    "artificial intelligence", "climate change", "electric vehicles",
-                    "streaming services", "remote work", "social media", "gaming",
-                    "cryptocurrency", "space exploration", "renewable energy"
-                ]
+                trending_topics = DEFAULT_TRENDING_TOPICS
             
             return trending_topics[:10]  # Return top 10
 
@@ -630,9 +622,9 @@ def create_event_stream():
             enhanced_fake_twitter_stream(
                 keywords=KEYWORDS,
                 on_event=on_twitter_event,
-                events_per_batch=4,      # 4 tweets per batch
-                batch_interval=120,      # Every 2 minutes
-                topic_hints=trending_topics  # Use trending topics to influence content
+                events_per_batch=TWITTER_SIM_EVENTS_PER_BATCH,
+                batch_interval=TWITTER_SIM_BATCH_INTERVAL,
+                topic_hints=trending_topics
             )
             
         except Exception as e:
@@ -666,10 +658,10 @@ def create_event_stream():
             # Use realistic simulated trends with 30-minute cycles
             start_google_trends_collector(
                 on_event=on_trends_event,
-                region="US",
-                category="all",
-                count=8,  # 8 trends per cycle
-                interval=1800,  # 30 minutes
+                region=REGIONS[0],  # Uses the first region from config #TODO: Multi-region support
+                category=TRENDS_CATEGORY,
+                count=TRENDS_COUNT,
+                interval=TRENDS_INTERVAL_SEC,
             )
         except Exception as e:
             stream_logger.error(f"Simulated trends collector error: {e}")
@@ -723,6 +715,7 @@ def signal_handler(signum, frame):
     # Also signal the runtime glue if it exists
     if runtime_glue_instance is not None:
         runtime_glue_instance.set_shutdown()
+
 # ----------------------------------------------------------------------
 
 def main(yaml_config_path: str = None):
@@ -739,7 +732,12 @@ def main(yaml_config_path: str = None):
     spam_scorer = SpamScorer()
     graph_builder = GraphBuilder(spam_scorer=spam_scorer)
     sensitivity_controller = SensitivityController()
-    embedder = RealtimeTextEmbedder(batch_size=8, max_latency_ms=50, device="cpu")
+
+    embedder = RealtimeTextEmbedder(
+        batch_size=EMBEDDER_BATCH_SIZE, 
+        max_latency_ms=EMBEDDER_MAX_LATENCY_MS, 
+        device=INFERENCE_DEVICE if INFERENCE_DEVICE else "cpu"
+    )
 
     # Try to load a trained checkpoint if present
     ckpt_path = DATA_DIR / "tgn_model.pt"
@@ -747,8 +745,8 @@ def main(yaml_config_path: str = None):
     try:
         if ckpt_path.exists():
             tgn_service = TGNInferenceService(
-                checkpoint_path=str(ckpt_path), 
-                device="cpu", 
+                checkpoint_path=str(ckpt_path),
+                device=INFERENCE_DEVICE if INFERENCE_DEVICE else "cpu",
                 log_dir=str(DATA_DIR)
             )
             logger.info(f"Loaded TGN checkpoint: {ckpt_path}")
@@ -766,8 +764,7 @@ def main(yaml_config_path: str = None):
         service=tgn_service,
     )
 
-    # ---------------------- Helper  ----------------------
-    from pathlib import Path
+
     def _reload_ckpt(p: Path) -> None:
         """Hot-reload (or late-init) the TGN service after retraining."""
         try:
@@ -790,8 +787,8 @@ def main(yaml_config_path: str = None):
                 logger.info(f"Reloaded TGN checkpoint: {p}")
         except Exception as e:
             logger.error(f"Failed to (re)load TGN checkpoint: {e}")
-    # --------------------------------------------------------------------
 
+    
     # Run initial topic labeling to ensure meaningful labels exist
     logger.info("Running initial topic labeling pipeline...")
     try:
@@ -800,13 +797,13 @@ def main(yaml_config_path: str = None):
         logger.warning(f"Initial topic labeling failed: {e}")
     
     # Configure RuntimeGlue
-    config = RuntimeConfig.from_yaml(yaml_config_path)
-    runtime_glue = RuntimeGlue(event_handler, config)
+    runtime_config = RuntimeConfig.from_yaml(yaml_config_path)
+    runtime_glue = RuntimeGlue(event_handler, runtime_config)
     event_handler.runtime_glue = runtime_glue  # allow handler to call update_topic_labels() safely later
     global runtime_glue_instance
     runtime_glue_instance = runtime_glue  # Store for signal handler
-    
-    logger.info(f"Configuration: {config.__dict__}")
+
+    logger.info(f"Configuration: {runtime_config.__dict__}")
 
     training_scheduler = None
     hourly_collector = None
@@ -814,12 +811,13 @@ def main(yaml_config_path: str = None):
         try:
             from service.training_scheduler import TrainingScheduler, HourlyDataCollector
             
-            # Initialize training scheduler (weekly retraining)
+            # Initialize training scheduler
             training_scheduler = TrainingScheduler(
                 database=event_database,
                 datasets_dir=DATA_DIR,
-                training_interval_hours=168,  # 1 week
-                min_events_for_training=100
+                training_interval_hours=TRAINING_INTERVAL_HOURS,
+                min_events_for_training=MIN_EVENTS_FOR_TRAINING,
+                on_new_checkpoint=_reload_ckpt,
             )
             
             # Initialize hourly data collector
@@ -836,7 +834,6 @@ def main(yaml_config_path: str = None):
     # Variables for cleanup
     training_scheduler_ref = training_scheduler
     hourly_collector_ref = hourly_collector
-    
     try:
         # Create unified event stream
         logger.info("Starting data collectors...")

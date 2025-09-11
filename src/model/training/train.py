@@ -36,14 +36,24 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
         device: Device to run the training on ("cpu" or "cuda").
     
     """
+    # Load data
     data = np.load(npz_path, allow_pickle=True)
-
     src_arr = data["src"]
     dst_arr = data["dst"]
     t_arr = data["t"]
     edge_attr_arr = data["edge_attr"]
-    node_feats = torch.FloatTensor(data["node_features"])
-    num_nodes = node_feats.shape[0]
+    
+    # node_features are optional; fall back to 0-dim node features
+    try:
+        node_feats = torch.as_tensor(data["node_features"])
+        node_feat_dim = int(node_feats.shape[1]) if node_feats.ndim == 2 else 0
+        num_nodes = int(node_feats.shape[0])
+    except KeyError:
+        # derive num_nodes from edges
+        num_nodes = int(max(src_arr.max(), dst_arr.max())) + 1 if len(src_arr) else 1
+        node_feat_dim = 0
+        node_feats = None
+
     EDGE_DIM = edge_attr_arr.shape[1]
 
     events: Batch = []
@@ -68,17 +78,36 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
     dst = torch.LongTensor([int(e["target_ids"][0]) for e in events])
     src, dst = src.to(dev), dst.to(dev)
     t = torch.FloatTensor([datetime.fromisoformat(e["ts_iso"]).timestamp() for e in events]).to(dev)
-    edge_attr = torch.from_numpy(
-        np.stack([e["features"]["text_emb"] for e in events], axis=0)
-    ).to(dev)
 
+    # edge_attr = torch.from_numpy(
+    #     np.stack([e["features"]["text_emb"] for e in events], axis=0)
+    # ).to(dev)
     MEM_DIM = TGN_MEMORY_DIM
     TIME_DIM = TGN_TIME_DIM
-    EDGE_DIM = edge_attr.shape[1] if edge_attr.ndim == 2 else TGN_EDGE_DIM
+    EDGE_DIM = edge_attr_arr.shape[1]
+    edge_attr_list = []
+    missing = 0
+    
+    for e in events:
+        feats = e.get("features") or {}
+        emb = feats.get("text_emb")
+        if emb is None:
+            missing += 1
+            # Backfill policy: zeros (you can also support "mean" or "learned_unknown")
+            emb = np.zeros(EDGE_DIM, dtype=np.float32)
+            feats["text_emb"] = emb           # write back so the event is now normalized
+            e["features"] = feats
+        edge_attr_list.append(emb)
+
+    edge_attr = torch.from_numpy(
+        np.stack(edge_attr_list, dtype=np.float32)
+    )
+    if missing:
+        logging.info("[train.py] backfilled %d missing text_emb", missing)
     
     model = TGNModel(
         num_nodes=num_nodes,
-        node_feat_dim=node_feats.shape[1],
+        node_feat_dim=node_feat_dim,
         edge_feat_dim=EDGE_DIM,
         time_dim=TIME_DIM,
         memory_dim=MEM_DIM,
@@ -92,11 +121,11 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
         total_loss = 0.0
 
         for i in range(len(src) - 1):
-            src_i = src[i].unsqueeze(0).long()
-            dst_i = dst[i].unsqueeze(0).long()
-            t_i = t[i].unsqueeze(0)
-            edge_feat = edge_attr[i].unsqueeze(0)
-            label = torch.tensor([1])  # TODO: replace with actual per-edge label
+            src_i = src[i].unsqueeze(0).long().to(dev)
+            dst_i = dst[i].unsqueeze(0).long().to(dev)
+            t_i = t[i].unsqueeze(0).to(dev)
+            edge_feat = edge_attr[i].unsqueeze(0).to(dev)
+            label = torch.tensor([1], device=dev)  # TODO: replace with actual per-edge label
 
             # TGN decoder outputs [emergence_logit, growth, diffusion].
             # For the classification loss we only want a single binary logit.
@@ -123,11 +152,13 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
             "memory_dim": int(TGN_MEMORY_DIM),
             "time_dim": int(TGN_TIME_DIM),
             "edge_feat_dim": int(EDGE_DIM),
+            "node_feat_dim": int(node_feat_dim),
         }
     }
     ckpt_path = Path(ckpt_out)
     ckpt_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(ckpt_payload, ckpt_path)
+    print(f"[train.py] saved checkpoint → {ckpt_path}")
 
 
 def smooth_labels(

@@ -7,25 +7,29 @@ from datetime import datetime
 from transformers import DistilBertTokenizer, DistilBertModel
 
 from utils.path_utils import find_repo_root
+from config.config import (
+    DATA_DIR,
+    TGN_EDGE_DIM,
+    EMBED_MAX_TOKENS,
+)
 
 
 def build_tgn(
     events_path: Path | str | None = None,
     output_path: Path | str | None = None,
     force: bool = False,
-    max_text_len: int = 32,
+    max_text_len = EMBED_MAX_TOKENS,
 ) -> Path:
     """Build TGN edge file from events.jsonl."""
-    repo_root = find_repo_root()
     events_path = (
         Path(events_path)
         if events_path is not None
-        else repo_root / "datasets" / "events.jsonl"
+        else DATA_DIR / "events.jsonl"
     )
     output_path = (
         Path(output_path)
         if output_path is not None
-        else repo_root / "datasets" / "tgn_edges_basic.npz"
+        else DATA_DIR / "tgn_edges_basic.npz"
     )
 
     if output_path.exists() and not force:
@@ -75,10 +79,41 @@ def build_tgn(
 
     with events_path.open(encoding="utf-8") as f:
         for line in f:
+            if not line.strip():
+                continue
             event = json.loads(line)
-            user = get_node_id(event["user_id"])
-            content = get_node_id(event["content_id"])
-            time_val = to_timestamp(event["timestamp"])
+
+            # ---- normalize core IDs ----
+            user_raw = (
+                event.get("user_id")
+                or event.get("actor_id")
+                or event.get("author_id")
+                or event.get("u_id")
+                or event.get("channel_id")
+                or event.get("account_id")
+                or "unknown_user"
+            )
+            content_raw = (
+                event.get("content_id")
+                or event.get("video_id")
+                or event.get("tweet_id")
+                or event.get("post_id")
+                or (event.get("target_id"))
+                or (event.get("target_ids", [None])[0] if isinstance(event.get("target_ids"), list) and event.get("target_ids") else None)
+                or event.get("id")
+                or event.get("text")  # last resort: use text as content key
+                or f"content_{len(node2id)}"
+            )
+            ts_raw = (
+                event.get("timestamp")
+                or event.get("ts_iso")
+                or event.get("created_at")
+                or datetime.utcnow().isoformat()  # fallback
+            )
+            user = get_node_id(str(user_raw))
+            content = get_node_id(str(content_raw))
+            time_val = to_timestamp(ts_raw)
+
             platform = event.get("source", "")
             e_type = event.get("type", "")
 
@@ -97,31 +132,53 @@ def build_tgn(
             timestamps.append(time_val)
             edge_features.append(feature)
 
-            # Extract content node embedding ONLY if first seen
+            # ---- text embedding for content nodes ----
+
+            # prefer common fields
+            text = (
+                event.get("text")
+                or event.get("tweet_text")
+                or event.get("caption")
+                or event.get("title")
+                or event.get("description")
+                or ""
+            )
             if content not in node_features:
-                node_features[content] = embed_text(event.get("text", ""))
+                try:
+                    node_features[content] = embed_text(text)
+                except Exception:
+                    node_features[content] = np.zeros(TGN_EDGE_DIM, dtype=np.float32)
 
             # User node (NOTE: simple zeros for now)
             if user not in node_features:
-                node_features[user] = np.zeros(768)
+                node_features[user] = np.zeros(TGN_EDGE_DIM, dtype=np.float32)
 
-            # Hashtag nodes
-            for hashtag in event.get("hashtags", []):
+            # ---------- Hashtag/tags edges ----------
+            tags = event.get("hashtags") or event.get("tags") or []
+            if isinstance(tags, str):
+                # naive split for comma/space-separated strings
+                parts = [t for t in tags.replace(",", " ").split() if t]
+            elif isinstance(tags, list):
+                parts = [str(t) for t in tags if t]
+            else:
+                parts = []
+
+
+            for hashtag in parts:
                 h_id = get_node_id("h_" + hashtag)
                 src_nodes.append(content)
                 dst_nodes.append(h_id)
                 timestamps.append(time_val)
-                edge_features.append([0, 0, 0, 0, 0])  # TODO: Add meaningful features
+                edge_features.append([0, 0, 0, 0, 0])  # TODO: Add richer features later
 
     # --- Build full node features array (in node ID order) ---
     num_nodes = len(node2id)
-    feature_dim = 768  # DistilBERT base output size
     features_list = []
     for i in range(num_nodes):
         if i in node_features:
             features_list.append(node_features[i])
         else:
-            features_list.append(np.zeros(feature_dim))
+            features_list.append(np.zeros(TGN_EDGE_DIM))
     features_array = np.stack(features_list)
 
     # Save to .npz for easy loading in PyTorch

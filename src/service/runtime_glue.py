@@ -13,6 +13,8 @@ import time
 import threading
 import traceback
 import hashlib
+import logging
+
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Generator
@@ -27,6 +29,8 @@ from config.config import (
     PREDICTIONS_CACHE_PATH,
     TOPIC_LOOKUP_PATH,
     METRICS_LOOKUP_PATH,
+    EVENT_JSONL_PATH,
+    DATA_DIR,
 )
 from config.schemas import (
     Event,
@@ -87,6 +91,7 @@ class RuntimeGlue:
     ):
         self.event_handler = event_handler
         self.config = config or RuntimeConfig()
+        self.logger = logging.getLogger(__name__) # Logger used by _record_event_for_metrics and others
         
         # Initialize metrics tracking
         self.precision_tracker = PrecisionAtKOnline(
@@ -402,7 +407,7 @@ class RuntimeGlue:
             
             # Run the pipeline to generate meaningful labels
             result = run_topic_labeling_pipeline(
-                events_path="datasets/events.jsonl",
+                events_path=str(EVENT_JSONL_PATH),
                 topic_lookup_path=str(self._topic_lookup_path),
                 use_embedder=False  # Use TF-IDF only for better performance
             )
@@ -527,8 +532,7 @@ class RuntimeGlue:
                     self._predictions_buffer = self._predictions_buffer[-50:]
 
         except Exception as e:
-            # Never let metrics recording break the main loop
-            print(f"Error recording metrics: {e}")
+            self.logger.error("Error recording metrics: %s\n%s", e, traceback.format_exc()) # log error without crashing; traceback stacktrace for pinpointing exact failing line
     
     def run_stream(self, event_stream: Iterable[Event]):
         """Run the main stream processing loop."""

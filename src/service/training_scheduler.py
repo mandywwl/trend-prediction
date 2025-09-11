@@ -8,12 +8,21 @@ import os
 
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import traceback
 from typing import Optional, Callable, Any
 
 from utils.logging import get_logger
 from utils.datetime import utc_now
 from data_pipeline.storage.database import EventDatabase
 from model.training.train import train_tgn_from_npz
+from config.config import (
+    DATA_DIR,
+    TRAINING_INTERVAL_HOURS,
+    MIN_EVENTS_FOR_TRAINING,
+    TRAIN_EPOCHS,
+    SCHEDULER_POLL_SECONDS,
+    INFERENCE_DEVICE,
+)
 
 logger = get_logger(__name__)
 
@@ -25,8 +34,8 @@ class TrainingScheduler:
         self,
         database: EventDatabase,
         datasets_dir: Path,
-        training_interval_hours: int = 168,  # 1 week = 168 hours
-        min_events_for_training: int = 100,
+        training_interval_hours = TRAINING_INTERVAL_HOURS,
+        min_events_for_training = MIN_EVENTS_FOR_TRAINING,
         on_new_checkpoint: Optional[Callable[[Path], None]] = None,
     ):
         """Initialize the training scheduler.
@@ -74,7 +83,7 @@ class TrainingScheduler:
                     self._trigger_training()
                 
                 # Check every hour
-                time.sleep(3600)
+                time.sleep(SCHEDULER_POLL_SECONDS)
                 
             except Exception as e:
                 logger.error(f"Error in training scheduler: {e}")
@@ -118,21 +127,26 @@ class TrainingScheduler:
             # Train the model
             npz_path = self.datasets_dir / "tgn_edges_basic.npz"
             ckpt_out = self.datasets_dir / "tgn_model.pt"
-
             if npz_path.exists():
-                # uses your trainer from model.training.train
-                train_tgn_from_npz(str(npz_path), str(ckpt_out), epochs=8, device="cpu")
-                # tell the running app to reload weights (main.py provides this)
-                if self.on_new_checkpoint is not None:
-                    self.on_new_checkpoint(ckpt_out)
-                self.last_training_time = utc_now()
-                logger.info(f"Training completed successfully with {event_count} events")
+                train_tgn_from_npz(str(npz_path), # uses trainer from model.training.train
+                                   str(ckpt_out), 
+                                   epochs=TRAIN_EPOCHS, 
+                                   device=INFERENCE_DEVICE,
+                                   noise_p=None,
+                                   noise_seed=0)
+                if Path(ckpt_out).exists():
+                    logger.info(f"Training completed successfully; saved {ckpt_out}")
+                    self.last_training_time = utc_now()
+                    # tell the running app to reload weights (main.py provides this)
+                    if self.on_new_checkpoint is not None:
+                        self.on_new_checkpoint(ckpt_out)
+                else:
+                    logger.error(f"Training returned but checkpoint missing: {ckpt_out}")
             else:
                 logger.error(f"No NPZ at {npz_path}; skipping model training")
             
-            
         except Exception as e:
-            logger.error(f"Training failed: {e}")
+            logger.error("Training failed: %s\n%s", e, traceback.format_exc())
     
     def _run_preprocessing(self, events_file: Path) -> None:
 
@@ -192,8 +206,7 @@ class TrainingScheduler:
             
             try:
                 if 'tmp_path' in locals() and tmp_path.exists():
-                    # Only delete if it isn't the original file we were given
-                    if tmp_path.resolve() != events_file.resolve():
+                    if tmp_path.resolve() != events_file.resolve(): # Only delete if it isn't the original file we were given
                         tmp_path.unlink()
             except Exception:
                 pass

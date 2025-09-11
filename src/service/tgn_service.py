@@ -5,10 +5,6 @@ event-driven pipeline. Each event updates the temporal memory and triggers a
 forward pass that yields three trend metrics: emergence probability, growth
 rate, and diffusion score.
 
-Key features:
-- LRU-based soft memory limiting via MAX_NODES.
-- Missing text embeddings handled via DEFAULT_TEXT_EMB_POLICY.
-- Append-only logging of update and forward latencies.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -16,8 +12,7 @@ from pathlib import Path
 from typing import Dict
 import json
 import time
-import math
-
+import logging
 import numpy as np
 import torch
 
@@ -72,6 +67,9 @@ class TGNInferenceService:
         scores = service.update_and_score(event)
     """
 
+
+
+
     def __init__(
         self,
         *,
@@ -83,9 +81,38 @@ class TGNInferenceService:
         log_dir: str | Path = "datasets",
     ) -> None:
         """Initialize the inference service and load a checkpoint if provided."""
+
+        self.logger = logging.getLogger(__name__)
         self.device = torch.device(device)
         self.edge_dim = int(edge_feat_dim or TGN_EDGE_DIM or 768)
         self.policy = TEXT_EMB_POLICY
+
+        ckpt_hparams = {}
+
+        if checkpoint_path is not None:
+            p = Path(checkpoint_path)
+            if p.exists():
+                try:
+                    state_dict, saved_hparams = self._peek_state(p)
+                    # If trainer saved hparams, prefer them
+                    if isinstance(saved_hparams, dict):
+                        ckpt_hparams = dict(saved_hparams)
+                    else:
+                        ckpt_hparams = self._infer_hparams(state_dict, default_time_dim=TGN_TIME_DIM)
+                except Exception as e:
+                    self.logger.warning(f"Could not peek checkpoint hparams ({p}): {e}")
+
+        # Choose dims (ckpt -> config fallback)
+        num_nodes  = int(ckpt_hparams.get("num_nodes", MAX_NODES))
+        memory_dim = int(ckpt_hparams.get("memory_dim", TGN_MEMORY_DIM))
+        time_dim   = int(ckpt_hparams.get("time_dim",   TGN_TIME_DIM))
+        edge_dim   = int(ckpt_hparams.get("edge_feat_dim", TGN_EDGE_DIM))
+        self.logger.info(
+            "TGN dims → num_nodes=%d, memory_dim=%d, time_dim=%d, edge_dim=%d",
+            num_nodes, memory_dim, time_dim, edge_dim,
+        )
+
+        self.edge_dim = edge_dim  # keep service’s expectation in sync
 
         # Pre-create zero and running mean embeddings for fallback policies
         self._zero_emb = torch.zeros(self.edge_dim, dtype=torch.float32)
@@ -96,9 +123,10 @@ class TGNInferenceService:
             torch.zeros(self.edge_dim, dtype=torch.float32)
         )
 
-        # Model is sized for MAX_NODES capacity; internal mapping enforces LRU
+        # Instantiate the model with the derived sizes
         self.model = TGNModel(
-            num_nodes=MAX_NODES,
+            num_nodes=num_nodes,
+            node_feat_dim=0,
             edge_feat_dim=self.edge_dim,
             time_dim=time_dim,
             memory_dim=memory_dim
@@ -110,9 +138,10 @@ class TGNInferenceService:
         if checkpoint_path is not None:
             self._load_checkpoint(checkpoint_path)
 
-        # Mapping from external ids to memory indices with LRU eviction
+        # Mapping from external ids to memory indices
         self._nodes = _NodeMap(id_to_idx={}, idx_to_id={})
-        self._free_indices = list(range(MAX_NODES))
+        capacity = int(self.model.memory.memory.size(0))
+        self._free_indices = list(range(capacity))
 
         # Append-only latency log path
         ensure_dir(Path(log_dir))
@@ -130,20 +159,61 @@ class TGNInferenceService:
         torch.set_grad_enabled(False)
 
     # ------------------------------------------------------------------
+    
+    def _peek_state(self, path: Path):
+        obj = torch.load(path, map_location="cpu")
+        # Support either {"state_dict": ...} or raw state_dict
+        state_dict = obj.get("state_dict", obj) if isinstance(obj, dict) else obj
+        return state_dict, (obj.get("hparams") if isinstance(obj, dict) else None)
+    
+    # ------------------------------------------------------------------
+
+    def _infer_hparams(self, state_dict: dict, default_time_dim: int) -> dict:
+        """Infer num_nodes, memory_dim, edge_feat_dim (and optionally time_dim) from a state_dict."""
+        hp = {}
+        mem = state_dict.get("memory.memory")
+        if mem is not None:
+            hp["num_nodes"] = int(mem.shape[0])
+            hp["memory_dim"] = int(mem.shape[1])
+        # Input size to GRU = memory_dim + edge_feat_dim + time_dim (in this implementation)
+        wih = state_dict.get("memory.gru.weight_ih")
+        if wih is not None and "memory_dim" in hp:
+            input_size = int(wih.shape[1])
+            # Use configured time_dim as a hint; compute edge_feat_dim from it
+            time_dim = default_time_dim
+            edge_feat_dim = max(1, input_size - hp["memory_dim"] - time_dim)
+            hp["time_dim"] = time_dim
+            hp["edge_feat_dim"] = edge_feat_dim
+        return hp
+
+    # ------------------------------------------------------------------
     def _load_checkpoint(self, path: str | Path) -> None:
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Checkpoint not found: {p}")
-        state = torch.load(p, map_location=self.device)
-        if isinstance(state, dict) and "state_dict" in state:
-            state = state["state_dict"]
-        # Support both strict and partial load to be tolerant to wrapper keys
+        obj = torch.load(p, map_location=self.device)
+        state = obj.get("state_dict", obj) if isinstance(obj, dict) else obj
+
+        # Try strict first
         try:
             self.model.load_state_dict(state, strict=True)
-        except Exception:
-            # Try to strip any leading module/ prefixes
-            cleaned = {k.split("module.")[-1]: v for k, v in state.items()}
-            self.model.load_state_dict(cleaned, strict=False)
+            return
+        except Exception as e:
+            self.logger.warning(f"Strict load failed, retrying with shape-filtered keys: {e}")
+
+        
+        # Filter to keys whose shapes match the current model
+        current = self.model.state_dict()
+        filtered = {}
+        for k, v in state.items():
+            kk = k.split("module.")[-1]
+            if kk in current and current[kk].shape == v.shape:
+                filtered[kk] = v
+        missing = [k for k in current.keys() if k not in filtered]
+        if missing:
+            self.logger.info(f"Skipping {len(missing)} keys with mismatched shapes (ok)")
+
+        self.model.load_state_dict(filtered, strict=False)
 
     # ------------------------------------------------------------------
     def reload_checkpoint(self, path: str | Path) -> None:

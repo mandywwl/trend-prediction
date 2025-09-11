@@ -51,7 +51,8 @@ def inject_noise(
         event = copy.deepcopy(new_batch[idx])
         mode = rng.choice(list(counts.keys()))
         if mode == "missing":
-            event.get("features", {}).pop("text_emb", None)
+            feats = event.setdefault("features", {})
+            feats["text_emb"] = None  # mark as missing
             new_batch[idx] = event
             counts[mode] += 1
         elif mode == "duplicate":
