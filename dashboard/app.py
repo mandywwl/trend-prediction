@@ -119,7 +119,8 @@ def render_topk_panel():
         status = panel_result.get("status", "unknown")
         
         if status == "success":
-            st.sidebar.success(f"✅ Active - {panel_result.get('predictions_count', 0)} predictions")
+            count = panel_result.get('available_count', panel_result.get('predictions_count', 0))
+            st.sidebar.success(f"✅ Active - {count} predictions available")
         elif status == "no_cache":
             st.sidebar.error("❌ No cache file found")
         elif status == "empty_cache":

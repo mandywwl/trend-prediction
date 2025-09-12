@@ -43,7 +43,8 @@ from config.config import (
     MIN_EVENTS_FOR_TRAINING,
     TOPIC_REFRESH_EVERY,
     TOPIC_REFRESH_SECS,
-    PERIODIC_REBUILD_SECS
+    PERIODIC_REBUILD_SECS,
+    EDGE_WEIGHT_MIN,
 
 )
 from config.schemas import Event, Features
@@ -259,6 +260,27 @@ class EventHandler:
             processed["edge_weight"] = weight
             processed['is_spam'] = bool(weight < 0.8)  # expose bool spam flag for metrics/robustness panels
             processed.setdefault("features", {})["edge_weight"] = weight
+
+        # recency × spam (half-life 1 hour)
+        try:
+            ts_iso = processed.get("ts_iso") or processed.get("timestamp")
+            # robust parse (no external dep): allow 'Z'
+            if isinstance(ts_iso, str):
+                ts_iso = ts_iso.replace('Z', '+00:00')
+                dt = datetime.fromisoformat(ts_iso)
+            else:
+                dt = datetime.now(timezone.utc)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            delta_hours = max(0.0, (now - dt).total_seconds() / 3600.0)
+            recency = 0.5 ** delta_hours
+        except Exception:
+            recency = 1.0
+
+        w_spam = float(processed["features"].get("edge_weight", 1.0))
+        combined = max(float(EDGE_WEIGHT_MIN), float(recency) * w_spam)
+        processed["features"]["edge_weight"] = combined # what service appends
 
         result = self._infer(processed)
 

@@ -158,7 +158,7 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
     ckpt_path = Path(ckpt_out)
     ckpt_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(ckpt_payload, ckpt_path)
-    print(f"[train.py] saved checkpoint → {ckpt_path}")
+    print(f"[train.py] Saved checkpoint → {ckpt_path}")
 
 
 def smooth_labels(
@@ -217,4 +217,3 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     train_tgn_from_npz(str(npz_path), str(ckpt_out), epochs=8, device=device)
-    print(f"[train.py] Saved checkpoint → {ckpt_out}")

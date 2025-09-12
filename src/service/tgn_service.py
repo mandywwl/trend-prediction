@@ -264,37 +264,47 @@ class TGNInferenceService:
 
     # ------------------------------------------------------------------
     def _edge_attr_from_features(self, features: dict | None) -> torch.Tensor:
+        # existing: resolve v as the embedding vector 'text_emb' (float tensor)
+        policy = TEXT_EMB_POLICY
         if not features:
-            policy = TEXT_EMB_POLICY
-            if policy == "mean" and self._mean_count > 0:
-                return self._mean_emb.to(self.device)
-            if policy == "learned_unknown":
-                return self._learned_unknown
+            if policy == "mean" and self._mean_count > 0: return self._mean_emb.to(self.device)
+            if policy == "learned_unknown": return self._learned_unknown
             return self._zero_emb.to(self.device)
 
         emb = features.get("text_emb") if isinstance(features, dict) else None
-
         if emb is None:
-            policy = TEXT_EMB_POLICY
-            if policy == "mean" and self._mean_count > 0:
-                return self._mean_emb.to(self.device)
-            if policy == "learned_unknown":
-                return self._learned_unknown
+            if policy == "mean" and self._mean_count > 0: return self._mean_emb.to(self.device)
+            if policy == "learned_unknown": return self._learned_unknown
             return self._zero_emb.to(self.device)
+        
+        # numpy/torch to torch float1D
+        v = torch.from_numpy(emb.astype(np.float32, copy=False)) if isinstance(emb, np.ndarray) else torch.as_tensor(emb, dtype=torch.float32)
 
-        # Convert to torch vector of expected dim
-        if isinstance(emb, np.ndarray):
-            v = torch.from_numpy(emb.astype(np.float32, copy=False))
-        else:
-            v = torch.as_tensor(emb, dtype=torch.float32)
-
-        if v.numel() != self.edge_dim:
-            # Pad/truncate to expected dim for robustness
-            if v.numel() < self.edge_dim:
-                pad = torch.zeros(self.edge_dim - v.numel(), dtype=torch.float32)
+        # Append edge_weight if present
+        ew = None
+        if isinstance(features, dict) and "edge_weight" in features:
+            try:
+                ew = float(features.get("edge_weight", 1.0))
+            except Exception:
+                ew = None
+        if ew is not None and self.edge_dim >= 2:
+            # reserve the last slot for the scalar, trim/pad emb to (edge_dim - 1)
+            target = max(1, self.edge_dim - 1)
+            if v.numel() < target:
+                pad = torch.zeros(target - v.numel(), dtype=torch.float32)
                 v = torch.cat([v.flatten(), pad], dim=0)
             else:
-                v = v.flatten()[: self.edge_dim]
+                v = v.flatten()[:target]
+            v = torch.cat([v, torch.tensor([ew], dtype=torch.float32)], dim=0)
+        else:
+            # fallback
+            if v.numel() != self.edge_dim:
+                if v.numel() < self.edge_dim:
+                    pad = torch.zeros(self.edge_dim - v.numel(), dtype=torch.float32)
+                    v = torch.cat([v.flatten(), pad], dim=0)
+                else:
+                    v = v.flatten()[: self.edge_dim]
+
 
         # Update running mean (Welford simplified for vectors)
         with torch.no_grad():

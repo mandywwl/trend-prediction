@@ -2,24 +2,31 @@ import json
 import numpy as np
 import torch
 from pathlib import Path
-
-from datetime import datetime
+from typing import Optional
+from datetime import datetime, timezone
 from transformers import DistilBertTokenizer, DistilBertModel
 
-from utils.path_utils import find_repo_root
 from config.config import (
     DATA_DIR,
     TGN_EDGE_DIM,
     EMBED_MAX_TOKENS,
+    EDGE_WEIGHT_MIN,
 )
-
+# ------------ Helpers ----------------
+# exponential half-life per hour (consistent, simple)
+def _recency_scalar(ts_sec: float, ref_sec: float) -> float:
+    # half-life = 1 hour  →  rec = 0.5 ** hours
+    hours = max(0.0, (ref_sec - ts_sec) / 3600.0)
+    return float(0.5 ** hours)
+    
+# -----------------------------------
 
 def build_tgn(
     events_path: Path | str | None = None,
     output_path: Path | str | None = None,
     force: bool = False,
     max_text_len = EMBED_MAX_TOKENS,
-) -> Path:
+) -> Optional[Path]:
     """Build TGN edge file from events.jsonl."""
     events_path = (
         Path(events_path)
@@ -42,6 +49,7 @@ def build_tgn(
     try:
         tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
         model = DistilBertModel.from_pretrained("distilbert-base-uncased")
+        model.eval()  # inference mode
     except Exception as e:
         print(f"[preprocess] Error loading DistilBERT model: {e}")
         return None
@@ -58,8 +66,7 @@ def build_tgn(
         return node2id[node]
 
     def to_timestamp(ts: str) -> float:
-        """Convert ISO8601 timestamp to float (seconds since epoch)"""
-        from utils.datetime import parse_iso_timestamp
+        from utils.datetime import parse_iso_timestamp # reuse existing utility
 
         dt = parse_iso_timestamp(ts)
         return dt.timestamp()
@@ -73,6 +80,7 @@ def build_tgn(
             outputs = model(**inputs)
         emb = outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
         return emb
+    # ---------------------------------------------
 
     if not events_path.exists():
         raise FileNotFoundError(f"Events file not found: {events_path}")
@@ -108,7 +116,7 @@ def build_tgn(
                 event.get("timestamp")
                 or event.get("ts_iso")
                 or event.get("created_at")
-                or datetime.utcnow().isoformat()  # fallback
+                or datetime.now(timezone.utc).isoformat() # fallback
             )
             user = get_node_id(str(user_raw))
             content = get_node_id(str(content_raw))
@@ -125,12 +133,10 @@ def build_tgn(
                 int(e_type == "retweet"),
                 int(e_type == "upload"),
             ]
-
             # Add edge: user — content
             src_nodes.append(user)
             dst_nodes.append(content)
             timestamps.append(time_val)
-            edge_features.append(feature)
 
             # ---- text embedding for content nodes ----
 
@@ -178,8 +184,30 @@ def build_tgn(
         if i in node_features:
             features_list.append(node_features[i])
         else:
-            features_list.append(np.zeros(TGN_EDGE_DIM))
+            features_list.append(np.zeros(TGN_EDGE_DIM, dtype=np.float32))
     features_array = np.stack(features_list)
+
+    # --- Finalize edge features with recency ---
+    # reference time: use the latest timestamp in this dataset
+    ref_sec = float(max(timestamps)) if timestamps else float(datetime.now(timezone.utc).timestamp())
+
+    edge_features = []  # rebuild as [768 emb ..., 1 recency]
+    for s, d, t in zip(src_nodes, dst_nodes, timestamps):
+        # content/node embedding for this edge (zeros if missing)
+        emb = node_features.get(d)
+        if emb is None:
+            emb = np.zeros(TGN_EDGE_DIM, dtype=np.float32)
+
+        # recency scalar in [0,1]
+        rec = _recency_scalar(float(t), ref_sec)
+        rec = max(EDGE_WEIGHT_MIN, rec)  # clamp like runtime
+
+        # concat → [768 + 1]
+        vec = np.concatenate([emb.astype(np.float32, copy=False),
+                            np.array([rec], dtype=np.float32)], axis=0)
+        edge_features.append(vec)
+
+    edge_features = np.stack(edge_features, axis=0)
 
     # Save to .npz for easy loading in PyTorch
     np.savez(
@@ -187,9 +215,11 @@ def build_tgn(
         src=np.array(src_nodes),
         dst=np.array(dst_nodes),
         t=np.array(timestamps),
-        edge_attr=np.array(edge_features),
+        edge_attr=edge_features,
         node_map=np.array(list(node2id.keys())),
-        node_features=features_array,
+        node_features=np.stack(
+            [node_features.get(i, np.zeros(TGN_EDGE_DIM, dtype=np.float32)) for i in range(len(node2id))]
+        )
     )
 
     print(
