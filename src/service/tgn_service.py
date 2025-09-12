@@ -14,8 +14,10 @@ import json
 import time
 import logging
 import numpy as np
+import math
 import torch
 
+from model.core.tgn import TGNModel
 from config.config import (
     MAX_NODES,
     TEXT_EMB_POLICY,
@@ -23,10 +25,11 @@ from config.config import (
     TGN_TIME_DIM,
     INFERENCE_DEVICE,
     TGN_EDGE_DIM,
+    GROWTH_FACTOR_BASE,
+    DELTA_HOURS,
 
 )
 from config.schemas import Event
-from model.core.tgn import TGNModel
 from utils.datetime import timestamp_to_seconds
 from utils.io import ensure_dir
 
@@ -68,8 +71,6 @@ class TGNInferenceService:
     """
 
 
-
-
     def __init__(
         self,
         *,
@@ -86,6 +87,13 @@ class TGNInferenceService:
         self.device = torch.device(device)
         self.edge_dim = int(edge_feat_dim or TGN_EDGE_DIM or 768)
         self.policy = TEXT_EMB_POLICY
+
+        # Online calibraters for growth and diffusion heads
+        self._ema_growth_mu = 0.0
+        self._ema_growth_var = 1.0
+        self._ema_diff_mu = 0.0
+        self._ema_diff_var = 1.0
+        self._ema_beta = 0.98 # smoothing factor
 
         ckpt_hparams = {}
 
@@ -118,10 +126,9 @@ class TGNInferenceService:
         self._zero_emb = torch.zeros(self.edge_dim, dtype=torch.float32)
         self._mean_emb = torch.zeros(self.edge_dim, dtype=torch.float32)
         self._mean_count = 0
+
         # Learned unknown embedding (used when  TEXT_EMB_POLICY says so)
-        self._learned_unknown = torch.nn.Parameter(
-            torch.zeros(self.edge_dim, dtype=torch.float32)
-        )
+        self._learned_unknown = torch.nn.Parameter(torch.zeros(self.edge_dim, dtype=torch.float32))
 
         # Instantiate the model with the derived sizes
         self.model = TGNModel(
@@ -313,6 +320,16 @@ class TGNInferenceService:
             self._mean_emb += delta / float(self._mean_count)
 
         return v.to(self.device)
+    
+    # ------------------------------------------------------------------
+
+    def _ema_update(self, x: float, mu: float, var: float) -> tuple[float, float]:
+        """Update (mu, var) with exponential smoothing."""
+        beta = float(self._ema_beta)
+        dx = x - mu
+        mu = mu + (1.0 - beta) * dx
+        var = beta * var + (1.0 - beta) * (dx * dx)
+        return mu, var
 
     # ------------------------------------------------------------------
     def _log_latencies(self, update_ms: float, forward_ms: float) -> None:
@@ -416,14 +433,41 @@ class TGNInferenceService:
         # Log latencies (append-only, non-blocking)
         self._log_latencies(update_ms, forward_ms)
 
-        # Split decoder outputs into named metrics
+        # ---- Map model heads to calibrated signals ----
         logits = logits.view(-1)
+
+        # Emergence: probability to [0,1]
         emergence = torch.sigmoid(logits[0]).clamp(0.0, 1.0).item()
-        growth = logits[1].item()
-        diffusion = torch.sigmoid(logits[2]).clamp(0.0, 1.0).item()
+
+        # Growth: positive magnitude → normalise by EMA → squash to [0,1]
+        #    - softplus ensures positivity (rate-like)
+        #    - divide by EMA mean to express "relative growth" (stable across drift)
+        #    - optional scaling by config.GROWTH_FACTOR_BASE to keep early training in-range
+        g_pos = torch.nn.functional.softplus(logits[1]).item()
+        self._ema_growth_mu, self._ema_growth_var = self._ema_update(
+            g_pos, self._ema_growth_mu, self._ema_growth_var
+        )
+        # relative to recent typical value; avoid div-by-0
+        g_rel = g_pos / (self._ema_growth_mu + 1e-6)
+
+        # For growth "per Δ" semantics, fold in Δ here (light heuristic):
+        # e.g., more Δ hours => slightly stricter normalisation
+        delta_scale = max(1.0, float(DELTA_HOURS) / 2.0)
+        g_norm = g_rel / (float(GROWTH_FACTOR_BASE) * delta_scale)
+
+        growth_rate = float(min(1.0, max(0.0, g_norm))) # clamp to [0,1] for stability
+
+        # Diffusion: standardise raw head by EMA -> z-score -> sigmoid to [0,1]
+        d_raw = logits[2].item()
+        self._ema_diff_mu, self._ema_diff_var = self._ema_update(
+            d_raw, self._ema_diff_mu, self._ema_diff_var
+        )
+        d_std = math.sqrt(max(self._ema_diff_var, 1e-6))
+        z = (d_raw - self._ema_diff_mu) / d_std
+        diffusion = float(torch.sigmoid(torch.tensor(z)).item())
 
         return {
             "emergence_probability": float(emergence),
-            "growth_rate": float(growth),
+            "growth_rate": float(growth_rate),
             "diffusion_score": float(diffusion),
         }

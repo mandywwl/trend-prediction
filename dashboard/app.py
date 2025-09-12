@@ -72,27 +72,24 @@ def main():
     
     # Auto-refresh toggle
     auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh (30s)", value=False)
+    interval_s = 30  # Refresh interval in seconds
+    now = time.time()
+
     if auto_refresh:
-        # Streamlit auto-refresh using a non-blocking countdown
-        st.sidebar.info("Dashboard will refresh automatically every 30 seconds")
-        interval_s = 30
-        placeholder = st.sidebar.empty()
+        last_ts = st.session_state.get("_last_auto_refresh_ts", 0.0)
+        st.sidebar.caption(f"App will refresh every {interval_s}s")
 
-        remaining_key = "_auto_refresh_remaining"
-        if remaining_key not in st.session_state:
-            st.session_state[remaining_key] = interval_s
+        # Only trigger refresh when interval elapsed
+        if (now - last_ts) >= interval_s:
+            st.session_state["_last_auto_refresh_ts"] = now
+            # use st.rerun() if available, else experimental
+            if hasattr(st, "rerun"):
+                st.rerun()
+            else:
+                st.experimental_rerun()
 
-        remaining = st.session_state[remaining_key]
-        placeholder.caption(f"Next refresh in {remaining}s")
-
-        if remaining <= 0:
-            st.session_state[remaining_key] = interval_s
-            st.session_state["_last_auto_refresh_ts"] = time.time()
-        else:
-            st.session_state[remaining_key] = remaining - 1
-
-        time.sleep(1)
-        st.rerun()
+    else:
+        st.session_state.pop("_last_auto_refresh_ts", None) # Clear state when turning auto-refresh off
     
     # Refresh button
     if st.sidebar.button("🔄 Refresh Now"):
