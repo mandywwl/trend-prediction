@@ -141,7 +141,9 @@ def render_panel() -> Dict[str, Any]:
         st.info(f"📅 Cache last updated: {formatted_time}")
     
     # Display predictions
-    topk_predictions = latest_predictions['topk'][:selected_k]
+    all_predictions = latest_predictions.get('topk', [])
+    total_available = len(all_predictions)
+    topk_predictions = all_predictions[:selected_k]
     prediction_time = latest_predictions['t_iso']
     
     if not topk_predictions:
@@ -204,6 +206,7 @@ def render_panel() -> Dict[str, Any]:
     return {
         "status": "success",
         "predictions_count": len(topk_predictions),
+        "available_count": total_available,
         "selected_k": selected_k,
         "prediction_time": prediction_time,
         "cache_last_updated": last_updated

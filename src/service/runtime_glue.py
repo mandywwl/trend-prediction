@@ -14,11 +14,13 @@ import threading
 import traceback
 import hashlib
 import logging
+import numpy as np
 
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Generator
 from dataclasses import dataclass, asdict
+from math import isfinite
 
 from config.config import (
     DELTA_HOURS,
@@ -358,42 +360,104 @@ class RuntimeGlue:
         """Update the predictions cache with recent predictions."""
         try:
             # Create cache item from recent predictions
-            if self._predictions_buffer:
-                # Use the most recent predictions
-                latest_predictions = self._predictions_buffer[-1] if self._predictions_buffer else []
+            if not self._predictions_buffer:
+                return
+            
+            # 1) Aggregate by topic_id across all events since the last update.
+            #    Use max(score) per topic to keep the strongest signal.
+            agg: dict[int, float] = {}
+            for preds in self._predictions_buffer:
+                for item in preds:
+                    try: 
+                        tid = int(item.get("topic_id"))
+                        sc = float(item.get("score", 0.0))
+                    except Exception:
+                        continue
+                    if not isfinite(sc):
+                        continue
+                    if sc > agg.get(tid, float('-inf')):
+                        agg[tid] = sc
+
+            # 2) Take global top-K by score
+            pairs = sorted(agg.items(), key=lambda x: (-x[1], x[0]))  # sort by score desc, topic_id asc
+            K_store = max(self.config.k_options) if getattr(self.config, "k_options", None) else self.config.k_default
+            topk = [{"topic_id": tid, "score": float(sc)} for tid, sc in pairs[:K_store]]
+
+            if not topk:
+                return
+            
+            # 3) Build and persist cache item
+            cache_item = {"t_iso": now.isoformat(), "topk": topk}
+            cache_path = Path(self.config.predictions_cache_path)
+            if cache_path.exists():
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+            else:
+                cache_data = {"last_updated": "", "items": []}
+
+            cache_data["last_updated"] = now.isoformat()
+            cache_data["items"].append(cache_item)
+
+            # Keep only recent items (last hour)
+            cutoff_time = now - timedelta(hours=1)
+            cache_data["items"] = [
+                item for item in cache_data["items"]
+                if item.get("t_iso") and self._safe_parse_iso(item["t_iso"]) and
+                self._safe_parse_iso(item["t_iso"]) > cutoff_time
+            ]
+
+            # Write cache atomically
+            tmp = cache_path.with_suffix('.tmp')
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, indent=2)
+            tmp.replace(cache_path)
+
+            # Log
+            total_preds = sum(len(x) for x in self._predictions_buffer)
+            print(f"[{now.isoformat()}] Aggregated {total_preds} preds ->  wrote {len(topk)} topics to cache")
+
+            # 4) Clear buffer after successful write
+            self._predictions_buffer.clear()
+
+            print(f"[{now.isoformat()}] Updated predictions cache with {len(cache_data['items'])} items")
+
+
+
+                # # Use the most recent predictions
+                # latest_predictions = self._predictions_buffer[-1] if self._predictions_buffer else []
                 
-                cache_item = CacheItem(
-                    t_iso=now.isoformat(),
-                    topk=latest_predictions[:self.config.k_default]  # Limit to k_default
-                )
+                # cache_item = CacheItem(
+                #     t_iso=now.isoformat(),
+                #     topk=latest_predictions[:self.config.k_default]  # Limit to k_default
+                # )
                 
-                # Load existing cache or create new one
-                cache_path = Path(self.config.predictions_cache_path)
-                if cache_path.exists():
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        cache_data = json.load(f)
-                else:
-                    cache_data = {"last_updated": "", "items": []}
+                # # Load existing cache or create new one
+                # cache_path = Path(self.config.predictions_cache_path)
+                # if cache_path.exists():
+                #     with open(cache_path, 'r', encoding='utf-8') as f:
+                #         cache_data = json.load(f)
+                # else:
+                #     cache_data = {"last_updated": "", "items": []}
                 
-                # Update cache
-                cache_data["last_updated"] = now.isoformat()
-                cache_data["items"].append(cache_item)
+                # # Update cache
+                # cache_data["last_updated"] = now.isoformat()
+                # cache_data["items"].append(cache_item)
                 
-                # Keep only recent items (last hour)
-                cutoff_time = now - timedelta(hours=1)
-                cache_data["items"] = [
-                    item for item in cache_data["items"]
-                    if item.get("t_iso") and self._safe_parse_iso(item["t_iso"]) and 
-                    self._safe_parse_iso(item["t_iso"]) > cutoff_time
-                ]
+                # # Keep only recent items (last hour)
+                # cutoff_time = now - timedelta(hours=1)
+                # cache_data["items"] = [
+                #     item for item in cache_data["items"]
+                #     if item.get("t_iso") and self._safe_parse_iso(item["t_iso"]) and 
+                #     self._safe_parse_iso(item["t_iso"]) > cutoff_time
+                # ]
                 
-                # Write cache atomically
-                temp_path = cache_path.with_suffix('.tmp')
-                with open(temp_path, 'w', encoding='utf-8') as f:
-                    json.dump(cache_data, f, indent=2)
-                temp_path.replace(cache_path)
+                # # Write cache atomically
+                # temp_path = cache_path.with_suffix('.tmp')
+                # with open(temp_path, 'w', encoding='utf-8') as f:
+                #     json.dump(cache_data, f, indent=2)
+                # temp_path.replace(cache_path)
                 
-                print(f"[{now.isoformat()}] Updated predictions cache with {len(cache_data['items'])} items")
+                # print(f"[{now.isoformat()}] Updated predictions cache with {len(cache_data['items'])} items")
 
         except Exception as e:
             print(f"[{now.isoformat()}] Error updating predictions cache: {e}")
