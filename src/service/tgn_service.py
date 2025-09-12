@@ -349,39 +349,75 @@ class TGNInferenceService:
         target_id = str(targets[0] if targets else actor_id)
         t_iso = str(event.get("ts_iso", ""))
 
-        # Resolve memory indices (LRU eviction if needed)
+        # ------- Resolve memory indices (LRU eviction if needed) -------
         src_idx = self._get_or_assign_idx(actor_id)
         dst_idx = self._get_or_assign_idx(target_id)
 
-        # Build tensors
+        # ----- Build tensors -------
+        # Parse event time (s); Enforce montonic non-decreasing timestamps
         t_val = self._parse_ts(t_iso)
+        last_t = getattr(self, "_last_t", t_val)
+        if t_val < last_t:
+            t_val = last_t
+        self._last_t = t_val
+
         t_tensor = torch.tensor([t_val], dtype=torch.float32, device=self.device)
         src_tensor = torch.tensor([src_idx], dtype=torch.long, device=self.device)
         dst_tensor = torch.tensor([dst_idx], dtype=torch.long, device=self.device)
-        e_attr = self._edge_attr_from_features(event.get("features"))
-        e_attr = e_attr.view(1, -1).to(self.device)
 
-        # Update memory state: detach graph then update
+        # Edge features -> 1D tensor = edge_dim
+        e_attr = self._edge_attr_from_features(event.get("features"))
+        expected_dim = self.edge_dim
+
+        if e_attr is None:
+            e_attr = torch.zeros(expected_dim, dtype=torch.float32, device=self.device)
+        else: 
+            if not torch.is_tensor(e_attr):
+                e_attr = torch.as_tensor(e_attr, dtype=torch.float32, device=self.device)
+            else:
+                e_attr = e_attr.flatten()[: expected_dim]
+
+        # pad/trim to expected_dim
+        flat = e_attr.flatten()
+        if flat.numel() < expected_dim:
+            pad = torch.zeros(expected_dim - flat.numel(), dtype=torch.float32, device=self.device)
+            e_attr = torch.cat([flat, pad], dim=0)
+        else:
+            e_attr = flat[:expected_dim]
+
+        e_attr_batched = e_attr.view(1, -1)  # (1, edge_dim)
+
+        # ----- INference: detach. forward, update -----
+        self.model.eval()
+
+        # Measure detach cost
         up_start = time.perf_counter()
         try:
-            self.model.memory.detach()
+            self.model.memory.detach() # cut historical DAG in memory before readin git
         except Exception:
             pass
-        # TGNMemory expects integer timestamps for update_state
-        t_event = t_tensor.long()
-        self.model.memory.update_state(src_tensor, dst_tensor, t_event, e_attr)
+
         update_ms = (time.perf_counter() - up_start) * 1000.0
+
+        # sanity checks
+        # NOTE: remove if noisy
+        assert src_tensor.dim() == 1 and dst_tensor.dim() == 1 and t_tensor.dim() == 1
+        assert e_attr_batched.dim() == 2 and e_attr_batched.size(1) == self.edge_dim
 
         # Forward pass
         fwd_start = time.perf_counter()
-        logits = self.model(src_tensor, dst_tensor, t_tensor, e_attr)
-        logits = logits.view(-1)
+        with torch.no_grad():
+            logits = self.model(src_tensor, dst_tensor, t_tensor, e_attr_batched)
         forward_ms = (time.perf_counter() - fwd_start) * 1000.0
+
+        t_event = t_tensor.long()
+        self.model.memory.update_state(src_tensor, dst_tensor, t_event, e_attr_batched)
 
         # Log latencies (append-only, non-blocking)
         self._log_latencies(update_ms, forward_ms)
 
         # Split decoder outputs into named metrics
+        logits = logits.view(-1)
         emergence = torch.sigmoid(logits[0]).clamp(0.0, 1.0).item()
         growth = logits[1].item()
         diffusion = torch.sigmoid(logits[2]).clamp(0.0, 1.0).item()
