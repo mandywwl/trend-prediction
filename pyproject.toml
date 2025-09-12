@@ -69,6 +69,7 @@ dependencies = [
     "setuptools>=80",
     "six~=1.17",
     "streamlit~=1.49",
+    "streamlit-autorefresh~=1.0",
     "sympy~=1.14",
     "tokenizers~=0.21",
     "tqdm~=4.67",

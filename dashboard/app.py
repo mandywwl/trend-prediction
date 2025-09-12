@@ -6,9 +6,13 @@ Main dashboard for monitoring live trend predictions and system health.
 
 import streamlit as st
 import sys
-from pathlib import Path
 import time
 import matplotlib
+
+from pathlib import Path
+from streamlit_autorefresh import st_autorefresh
+
+
 matplotlib.use('Agg')  # Use non-interactive backend for Streamlit
 
 # Add src to Python path for imports
@@ -72,25 +76,14 @@ def main():
     
     # Auto-refresh toggle
     auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh (30s)", value=False)
-    interval_s = 30  # Refresh interval in seconds
-    now = time.time()
+    interval_s = 30  # seconds
 
     if auto_refresh:
-        last_ts = st.session_state.get("_last_auto_refresh_ts", 0.0)
         st.sidebar.caption(f"App will refresh every {interval_s}s")
-
-        # Only trigger refresh when interval elapsed
-        if (now - last_ts) >= interval_s:
-            st.session_state["_last_auto_refresh_ts"] = now
-            # use st.rerun() if available, else experimental
-            if hasattr(st, "rerun"):
-                st.rerun()
-            else:
-                st.experimental_rerun()
-
+        _ = st_autorefresh(interval=interval_s * 1000, limit=None, key="auto_refresh_timer")
     else:
-        st.session_state.pop("_last_auto_refresh_ts", None) # Clear state when turning auto-refresh off
-    
+        pass
+        
     # Refresh button
     if st.sidebar.button("🔄 Refresh Now"):
         st.rerun()
