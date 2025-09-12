@@ -17,6 +17,7 @@ from config.config import (
     K_DEFAULT,
     K_OPTIONS,
     TOPIC_LOOKUP_PATH,
+    GROWTH_HORIZON_H,
 )
 from config.schemas import PredictionsCache, CacheItem
 
@@ -160,7 +161,7 @@ def render_panel() -> Dict[str, Any]:
     with col_topic:
         st.write("**Topic**")
     with col_score:
-        st.write("**Score**")
+        st.write(f"**Predicted Growth (next {GROWTH_HORIZON_H}h)**")
     with col_countdown:
         st.write("**Time to Δ-freeze**")
     

@@ -363,16 +363,15 @@ class IntegratedEventHandler(EventHandler):
             timer.start_stage('model_update_forward')
             if self._service is not None:
                 # --- Real model inference ---
-                tgn_out = self._service.update_and_score(event)  # {'emergence_probability', 'growth_rate', 'diffusion_score'}
+                tgn_out = self._service.update_and_score(event)  # returns {'growth_score', 'score', ...}
                 # Persist raw TGN metrics on the event for downstream consumers (e.g., dashboard panes)
                 event.setdefault("tgn_metrics", {}).update(tgn_out)
 
                 # For RuntimeGlue’s P@K, return a topic->score map.
-                # Use the stable topic for this event and score it by emergence probability
-                # (works well as a single-number ranking signal).
                 from service.runtime_glue import RuntimeGlue  # for stable id hashing via glue if needed
                 topic_label = event.get("text") or event.get("content_id") or "unknown_topic"
-                scores = {str(topic_label): float(tgn_out["emergence_probability"])}
+                growth = tgn_out.get("growth_score", tgn_out.get("score", tgn_out.get("growth_rate", 0.0)))
+                scores = {str(topic_label): float(growth)}
             else:
                 # Fallback: keep the current simulated scores while model is not ready
                 scores = self._generate_realistic_scores(event)

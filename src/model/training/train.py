@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from model.core.tgn import TGNModel
 from model.training.noise_injection import inject_noise
+from model.core.losses import HuberLoss
 from config.schemas import Batch
 from config.config import (
     DATA_DIR,
@@ -14,16 +15,16 @@ from config.config import (
     TGN_MEMORY_DIM,
     TGN_TIME_DIM,
     TGN_LR,
-    TGN_EDGE_DIM,
     INFERENCE_DEVICE,
+    HUBER_DELTA_DEFAULT,
+    TRAIN_EPOCHS,
 )
-from utils.path_utils import find_repo_root
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 
 def train_tgn_from_npz(npz_path: str, ckpt_out: str, 
-                       epochs: int = 8, 
+                       epochs: int | None = None, 
                        device: str = INFERENCE_DEVICE,
                        noise_p: float | None = None,
                        noise_seed: int | None = None
@@ -32,16 +33,21 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
     Args:
         npz_path: Path to the NPZ file containing the dataset.
         ckpt_out: Path to save the trained model checkpoint.
-        epochs: Number of training epochs.
+        epochs: Number of training epochs. If None, falls back to config.TRAIN_EPOCHS.
         device: Device to run the training on ("cpu" or "cuda").
     
     """
+    # Resolve epochs from arg or config
+    epochs = int(epochs) if epochs is not None else int(TRAIN_EPOCHS)
+
     # Load data
     data = np.load(npz_path, allow_pickle=True)
     src_arr = data["src"]
     dst_arr = data["dst"]
     t_arr = data["t"]
     edge_attr_arr = data["edge_attr"]
+    y_growth_arr = data["y_growth"].astype(np.float32)  # per-edge growth label
+    y_growth_arr = np.nan_to_num(y_growth_arr, nan=0.0, posinf=0.0, neginf=0.0) # clean up
     
     # node_features are optional; fall back to 0-dim node features
     try:
@@ -71,6 +77,14 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
 
     events = inject_noise(events, p=(noise_p if noise_p is not None else NOISE_P_DEFAULT),
                           seed=noise_seed)
+    n = min(len(events), len(y_growth_arr))
+    if len(events) != n or len(y_growth_arr) != n:
+        logging.warning(
+            "length mismatch after noise injection: events=%d, labels=%d → truncating to %d",
+            len(events), len(y_growth_arr), n
+        )
+    events = events[:n]
+    y_growth_arr = y_growth_arr[:n]
 
     dev = torch.device(device)
 
@@ -114,25 +128,44 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
     ).to(dev)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=TGN_LR)
+    criterion = HuberLoss(delta=HUBER_DELTA_DEFAULT, reduction="mean").to(dev) # robust regression loss for growth
+    y = torch.from_numpy(y_growth_arr).to(dev).unsqueeze(1)     # Labels tensor (N, 1)
 
-    
-    for epoch in range(epochs): 
+    # ------- Sanity checks -------
+    print("mem_dim,time_dim,edge_dim =>",
+          MEM_DIM, TIME_DIM, EDGE_DIM)
+    print("edge_attr shape:", tuple(edge_attr.shape))
+
+    # One dry forward to validate shapes
+    with torch.no_grad():
+        _ = model(src[:1].long(), dst[:1].long(), t[:1], edge_attr[:1].float())
+    print("Dry forward OK. Output shape:", tuple(_.shape))
+
+    # ------- Training loop -------
+    for epoch in range(epochs):
         model.reset_memory()
         total_loss = 0.0
 
-        for i in range(len(src) - 1):
+        for i in range(len(src)):
             src_i = src[i].unsqueeze(0).long().to(dev)
             dst_i = dst[i].unsqueeze(0).long().to(dev)
             t_i = t[i].unsqueeze(0).to(dev)
             edge_feat = edge_attr[i].unsqueeze(0).to(dev)
-            label = torch.tensor([1], device=dev)  # TODO: replace with actual per-edge label
+            # label = torch.tensor([1], device=dev)  # TODO: replace with actual per-edge label
 
-            # TGN decoder outputs [emergence_logit, growth, diffusion].
-            # For the classification loss we only want a single binary logit.
-            logit_pos = model(src_i, dst_i, t_i, edge_feat)[..., 0:1]   # (B,1)
-            logits = torch.cat([torch.zeros_like(logit_pos), logit_pos], dim=-1)  # (B,2)
+            # # TGN decoder outputs [emergence_logit, growth, diffusion].
+            # # For the classification loss we only want a single binary logit.
+            # logit_pos = model(src_i, dst_i, t_i, edge_feat)[..., 0:1]   # (B,1)
+            # logits = torch.cat([torch.zeros_like(logit_pos), logit_pos], dim=-1)  # (B,2)
 
-            loss = smoothed_cross_entropy(logits, label, num_classes=2)
+            # loss = smoothed_cross_entropy(logits, label, num_classes=2)
+
+            # Regression target (future growth) aligned to edge i
+            y_i = y[i].unsqueeze(0)  # (1,1)
+
+            # TGNModel returns a single scalar growth score (B,1)
+            pred = model(src_i, dst_i, t_i, edge_feat)  # (1,1)
+            loss = criterion(pred, y_i)
 
             optimizer.zero_grad()
             loss.backward()
@@ -144,6 +177,8 @@ def train_tgn_from_npz(npz_path: str, ckpt_out: str,
             model.memory.update_state(src_i, dst_i, t_event, edge_feat)
 
         print(f"Epoch {epoch} - Loss: {total_loss / (len(src) - 1):.4f}")
+
+
     # after training:
     ckpt_payload = {
         "state_dict": model.state_dict(),
@@ -213,7 +248,8 @@ if __name__ == "__main__":
 
     ckpt_out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use CUDA if available, otherwise CPU
-    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    train_tgn_from_npz(str(npz_path), str(ckpt_out), epochs=8, device=device)
+    # Use config device
+    device = INFERENCE_DEVICE if INFERENCE_DEVICE in ("cpu", "cuda") else "cpu"
+
+    train_tgn_from_npz(str(npz_path), str(ckpt_out), epochs=TRAIN_EPOCHS, device=device)

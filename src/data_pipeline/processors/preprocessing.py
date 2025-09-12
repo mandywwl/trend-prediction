@@ -11,6 +11,10 @@ from config.config import (
     TGN_EDGE_DIM,
     EMBED_MAX_TOKENS,
     EDGE_WEIGHT_MIN,
+    GROWTH_HORIZON_H,
+    LABEL_WINDOW_H,
+    LABEL_TYPE,
+    LABEL_EPS,
 )
 # ------------ Helpers ----------------
 # exponential half-life per hour (consistent, simple)
@@ -19,6 +23,53 @@ def _recency_scalar(ts_sec: float, ref_sec: float) -> float:
     hours = max(0.0, (ref_sec - ts_sec) / 3600.0)
     return float(0.5 ** hours)
     
+def _bin_time(ts_sec: float, window_h: int) -> int:
+    """Return an integer time bin index (hours // window_h)"""
+    return int((ts_sec // 3600) // window_h)
+
+def _series_to_future_labels(cur: float, fut: float, label_type: str, eps: float) -> float:
+    if label_type == "diff":
+        return float(fut - cur)
+    elif label_type == "pct":
+        return float((fut - cur) / max(cur, eps))
+    elif label_type == "logdiff":
+        return float(np.log(fut + eps) - np.log(cur + eps))
+    else:
+        raise ValueError(f"Unknown label_type: {label_type}")
+    
+def build_future_labels(events, k_hours: int, window_h: int, label_type: str, eps: float):
+    """ 
+    events: iterable of dicts with at least:
+        - topic_id (int)  -> content node id
+        - timestamp_sec (float)
+        - weight (float)  -> engagement increment (default 1.0)
+    Returns:
+      labels: dict[(topic_id, time_bin)] -> float future growth label
+      cur_counts, fut_counts (dicts) for optional diagnostics
+
+    """
+    from collections import defaultdict
+
+    counts = defaultdict(float)  # (topic_id, time_bin) -> count
+    for e in events:
+        tb = _bin_time(e["timestamp_sec"], window_h)
+        counts[(e["topic_id"], tb)] += float(e.get("weight", 1.0))
+    k_bins = k_hours // window_h
+    cur_counts, fut_counts, labels = {}, {}, {}
+
+    # build labels
+    for (topic_id, tb), cur in counts.items():
+        fut_tb = tb + k_bins
+        fut = counts.get((topic_id, fut_tb), 0.0)
+        label = _series_to_future_labels(cur, fut, label_type, eps)
+        cur_counts[(topic_id, tb)] = cur
+        fut_counts[(topic_id, tb)] = fut
+        labels[(topic_id, tb)] = label
+
+    return labels, cur_counts, fut_counts
+
+
+
 # -----------------------------------
 
 def build_tgn(
@@ -27,7 +78,7 @@ def build_tgn(
     force: bool = False,
     max_text_len = EMBED_MAX_TOKENS,
 ) -> Optional[Path]:
-    """Build TGN edge file from events.jsonl."""
+    """Build TGN edge file from events.jsonl + future growth labels."""
     events_path = (
         Path(events_path)
         if events_path is not None
@@ -56,7 +107,13 @@ def build_tgn(
 
     node2id: dict[str, int] = {}
     node_features: dict[int, np.ndarray] = {}
-    src_nodes, dst_nodes, timestamps, edge_features = [], [], [], []
+    src_nodes, dst_nodes, timestamps = [], [], []
+    edge_features = []  # will be rebuilt later
+
+    edge_topic_ids: list[int] = []  # for future labels
+    edge_time_bins: list[int] = []  # for future labels
+
+    events_for_labels = []  # list of {"topic_id": int, "timestamp_sec": float, "weight": 1.0}
 
     # --- Utility functions for TGN preprocessing ---
     def get_node_id(node: str) -> int:
@@ -133,14 +190,22 @@ def build_tgn(
                 int(e_type == "retweet"),
                 int(e_type == "upload"),
             ]
-            # Add edge: user — content
+            # -------- Add edge: user — content --------
             src_nodes.append(user)
             dst_nodes.append(content)
             timestamps.append(time_val)
+            # labels: topic is the content node, bin by config window
+            edge_topic_ids.append(content)
+            edge_time_bins.append(_bin_time(time_val, LABEL_WINDOW_H))
+
+            # Count this as an engagement event for label building
+            events_for_labels.append({
+                "topic_id": content,
+                "timestamp_sec": float(time_val),
+                "weight": 1.0, # simple count; can later weight by platform/type
+            })
 
             # ---- text embedding for content nodes ----
-
-            # prefer common fields
             text = (
                 event.get("text")
                 or event.get("tweet_text")
@@ -172,10 +237,15 @@ def build_tgn(
 
             for hashtag in parts:
                 h_id = get_node_id("h_" + hashtag)
+                # edge: content — hashtag
                 src_nodes.append(content)
                 dst_nodes.append(h_id)
                 timestamps.append(time_val)
-                edge_features.append([0, 0, 0, 0, 0])  # TODO: Add richer features later
+                # Label for this edge should still reference the content topic at this time
+                edge_topic_ids.append(content)
+                edge_time_bins.append(_bin_time(time_val, LABEL_WINDOW_H))
+                # TODO: placeholders features are rebuilt later
+                # (intentionally don't add hashtag edges to events_for_labels)
 
     # --- Build full node features array (in node ID order) ---
     num_nodes = len(node2id)
@@ -209,6 +279,23 @@ def build_tgn(
 
     edge_features = np.stack(edge_features, axis=0)
 
+    # --- Build future growth labels ---
+    labels_dict, cur_counts, fut_counts = build_future_labels(
+        events=events_for_labels,
+        k_hours=GROWTH_HORIZON_H,
+        window_h=LABEL_WINDOW_H,
+        label_type=LABEL_TYPE,
+        eps=LABEL_EPS,
+    )
+
+    # Map per-edge
+    y_growth = np.zeros(len(src_nodes), dtype=np.float32)
+    for i, (topic, tb) in enumerate(zip(edge_topic_ids, edge_time_bins)):
+        y_growth[i] = float(labels_dict.get((topic, tb), 0.0))
+
+    y_growth = np.nan_to_num(y_growth, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32) # clean up
+
+
     # Save to .npz for easy loading in PyTorch
     np.savez(
         output_path,
@@ -219,11 +306,21 @@ def build_tgn(
         node_map=np.array(list(node2id.keys())),
         node_features=np.stack(
             [node_features.get(i, np.zeros(TGN_EDGE_DIM, dtype=np.float32)) for i in range(len(node2id))]
-        )
+        ),
+        # Predictive target exports
+        y_growth=y_growth,
+        edge_topic_ids=np.array(edge_topic_ids),
+        edge_time_bins=np.array(edge_time_bins),
+        growth_horizon_hours=np.array([GROWTH_HORIZON_H], dtype=np.int32),
+        label_window_h=np.array([LABEL_WINDOW_H], dtype=np.int32),
+        label_type=np.array([LABEL_TYPE]),
+        label_eps=np.array([LABEL_EPS], dtype=np.float32),
     )
 
+    
     print(
         f"[preprocess] Saved {len(src_nodes)} edges and {len(node2id)} nodes to {output_path}"
+        f"(y_growth aligned to edges; horizon={GROWTH_HORIZON_H}h, window={LABEL_WINDOW_H}h, type={LABEL_TYPE})"
     )
     return output_path
 

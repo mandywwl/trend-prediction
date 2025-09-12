@@ -2,9 +2,7 @@
 
 Wraps a trained Temporal Graph Network (TGN) for online inference in an
 event-driven pipeline. Each event updates the temporal memory and triggers a
-forward pass that yields three trend metrics: emergence probability, growth
-rate, and diffusion score.
-
+forward pass that yields a single **predicted growth score** used for ranking.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -14,7 +12,7 @@ import json
 import time
 import logging
 import numpy as np
-import math
+# import math
 import torch
 
 from model.core.tgn import TGNModel
@@ -88,12 +86,17 @@ class TGNInferenceService:
         self.edge_dim = int(edge_feat_dim or TGN_EDGE_DIM or 768)
         self.policy = TEXT_EMB_POLICY
 
-        # Online calibraters for growth and diffusion heads
+        # # Online calibraters for growth and diffusion heads
+        # self._ema_growth_mu = 0.0
+        # self._ema_growth_var = 1.0
+        # self._ema_diff_mu = 0.0
+        # self._ema_diff_var = 1.0
+        # self._ema_beta = 0.98 # smoothing factor
+
+        # Optional online calibration for the single growth signal
         self._ema_growth_mu = 0.0
         self._ema_growth_var = 1.0
-        self._ema_diff_mu = 0.0
-        self._ema_diff_var = 1.0
-        self._ema_beta = 0.98 # smoothing factor
+        self._ema_beta = 0.98  # smoothing factor
 
         ckpt_hparams = {}
 
@@ -347,7 +350,7 @@ class TGNInferenceService:
 
     # ------------------------------------------------------------------
     def update_and_score(self, event: Event) -> Dict[str, float]:
-        """Update the TGN with the event and return trend metrics.
+        """Update the TGN with the event and return the predicted growth score.
 
         The service processes only the first target in ``target_ids`` for the
         forward pass to preserve latency; additional targets can be handled by
@@ -358,8 +361,10 @@ class TGNInferenceService:
                 target_ids, edge_type, features}.
 
         Returns:
-            Mapping with three entries: ``emergence_probability`` in [0, 1],
-            raw ``growth_rate`` (unbounded), and ``diffusion_score`` in [0, 1].
+            Mapping with at least:
+              - ``growth_score``: scalar (float), higher = stronger predicted growth.
+              - ``score``: alias of growth_score, for dashboards expecting "score".
+
         """
         actor_id = str(event.get("actor_id", "0"))
         targets = event.get("target_ids") or []
@@ -421,53 +426,67 @@ class TGNInferenceService:
         assert src_tensor.dim() == 1 and dst_tensor.dim() == 1 and t_tensor.dim() == 1
         assert e_attr_batched.dim() == 2 and e_attr_batched.size(1) == self.edge_dim
 
-        # Forward pass
+        # Forward pass (model returns shape [B, 1])
         fwd_start = time.perf_counter()
         with torch.no_grad():
-            logits = self.model(src_tensor, dst_tensor, t_tensor, e_attr_batched)
-        forward_ms = (time.perf_counter() - fwd_start) * 1000.0
+            # Update memory with new event
+            t_event = t_tensor.long()
+            self.model.memory.update_state(src_tensor, dst_tensor, t_event, e_attr_batched)
 
-        t_event = t_tensor.long()
-        self.model.memory.update_state(src_tensor, dst_tensor, t_event, e_attr_batched)
+            # Forward pass to get growth score
+            score_tensor = self.model(src_tensor, dst_tensor, t_tensor, e_attr_batched)
+
+        forward_ms = (time.perf_counter() - fwd_start) * 1000.0
 
         # Log latencies (append-only, non-blocking)
         self._log_latencies(update_ms, forward_ms)
 
-        # ---- Map model heads to calibrated signals ----
-        logits = logits.view(-1)
+        # # ---- Map model heads to calibrated signals ----
+        # logits = logits.view(-1)
 
-        # Emergence: probability to [0,1]
-        emergence = torch.sigmoid(logits[0]).clamp(0.0, 1.0).item()
+        # # Emergence: probability to [0,1]
+        # emergence = torch.sigmoid(logits[0]).clamp(0.0, 1.0).item()
 
-        # Growth: positive magnitude → normalise by EMA → squash to [0,1]
-        #    - softplus ensures positivity (rate-like)
-        #    - divide by EMA mean to express "relative growth" (stable across drift)
-        #    - optional scaling by config.GROWTH_FACTOR_BASE to keep early training in-range
-        g_pos = torch.nn.functional.softplus(logits[1]).item()
+        # # Growth: positive magnitude → normalise by EMA → squash to [0,1]
+        # #    - softplus ensures positivity (rate-like)
+        # #    - divide by EMA mean to express "relative growth" (stable across drift)
+        # #    - optional scaling by config.GROWTH_FACTOR_BASE to keep early training in-range
+        # g_pos = torch.nn.functional.softplus(logits[1]).item()
+        # self._ema_growth_mu, self._ema_growth_var = self._ema_update(
+        #     g_pos, self._ema_growth_mu, self._ema_growth_var
+        # )
+        # # relative to recent typical value; avoid div-by-0
+        # g_rel = g_pos / (self._ema_growth_mu + 1e-6)
+
+        # # For growth "per Δ" semantics, fold in Δ here (light heuristic):
+        # # e.g., more Δ hours => slightly stricter normalisation
+        # delta_scale = max(1.0, float(DELTA_HOURS) / 2.0)
+        # g_norm = g_rel / (float(GROWTH_FACTOR_BASE) * delta_scale)
+
+        # growth_rate = float(min(1.0, max(0.0, g_norm))) # clamp to [0,1] for stability
+
+        # # Diffusion: standardise raw head by EMA -> z-score -> sigmoid to [0,1]
+        # d_raw = logits[2].item()
+        # self._ema_diff_mu, self._ema_diff_var = self._ema_update(
+        #     d_raw, self._ema_diff_mu, self._ema_diff_var
+        # )
+        # d_std = math.sqrt(max(self._ema_diff_var, 1e-6))
+        # z = (d_raw - self._ema_diff_mu) / d_std
+        # diffusion = float(torch.sigmoid(torch.tensor(z)).item())
+
+        # return {
+        #     "emergence_probability": float(emergence),
+        #     "growth_rate": float(growth_rate),
+        #     "diffusion_score": float(diffusion),
+        # }
+
+        # --- Single growth signal ----
+        growth_raw = float(score_tensor.squeeze().item())
+        # Optional EMA normalisation (keeps scale stable over time)
         self._ema_growth_mu, self._ema_growth_var = self._ema_update(
-            g_pos, self._ema_growth_mu, self._ema_growth_var
+            growth_raw, self._ema_growth_mu, self._ema_growth_var
         )
-        # relative to recent typical value; avoid div-by-0
-        g_rel = g_pos / (self._ema_growth_mu + 1e-6)
-
-        # For growth "per Δ" semantics, fold in Δ here (light heuristic):
-        # e.g., more Δ hours => slightly stricter normalisation
-        delta_scale = max(1.0, float(DELTA_HOURS) / 2.0)
-        g_norm = g_rel / (float(GROWTH_FACTOR_BASE) * delta_scale)
-
-        growth_rate = float(min(1.0, max(0.0, g_norm))) # clamp to [0,1] for stability
-
-        # Diffusion: standardise raw head by EMA -> z-score -> sigmoid to [0,1]
-        d_raw = logits[2].item()
-        self._ema_diff_mu, self._ema_diff_var = self._ema_update(
-            d_raw, self._ema_diff_mu, self._ema_diff_var
-        )
-        d_std = math.sqrt(max(self._ema_diff_var, 1e-6))
-        z = (d_raw - self._ema_diff_mu) / d_std
-        diffusion = float(torch.sigmoid(torch.tensor(z)).item())
-
         return {
-            "emergence_probability": float(emergence),
-            "growth_rate": float(growth_rate),
-            "diffusion_score": float(diffusion),
+            "growth_score": growth_raw,
+            "score": growth_raw,  # alias for dashboards expecting 'score'
         }

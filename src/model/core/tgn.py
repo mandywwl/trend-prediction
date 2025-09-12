@@ -25,11 +25,13 @@ class TGNModel(nn.Module):
             aggregator_module=self.aggregator_module,
         )
 
-    
-        self.decoder = nn.Sequential(
-            nn.Linear(memory_dim * 2 + time_dim, TGN_DECODER_HIDDEN),
+
+        # Single-neuron regression head -> predicted growth score (scaler)
+        self.in_dim = memory_dim * 2 + time_dim + edge_feat_dim
+        self.growth_head = nn.Sequential(
+            nn.Linear(self.in_dim, TGN_DECODER_HIDDEN),
             nn.ReLU(),
-            nn.Linear(TGN_DECODER_HIDDEN, 3),
+            nn.Linear(TGN_DECODER_HIDDEN, 1),
         )
 
     def forward(self, src, dst, t, edge_attr):
@@ -42,9 +44,15 @@ class TGNModel(nn.Module):
         src_mem = self.memory.memory[src]
         dst_mem = self.memory.memory[dst]
 
+        # ENsure edge_attr is 2D and o same device/dtype
+        if edge_attr.dim() == 1:
+            edge_attr = edge_attr.unsqueeze(0)
+        edge_attr = edge_attr.to(src_mem.device).float()
+
         # Decode
-        out = torch.cat([src_mem, dst_mem, delta_t_enc], dim=1)
-        return self.decoder(out)
+        out = torch.cat([src_mem, dst_mem, delta_t_enc, edge_attr], dim=1)
+        growth_score = self.growth_head(out) # (N, 1)
+        return growth_score
 
     def reset_memory(self):
         self.memory.reset_state()
