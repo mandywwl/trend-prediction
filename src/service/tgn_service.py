@@ -77,7 +77,7 @@ class TGNInferenceService:
         memory_dim: int = TGN_MEMORY_DIM,
         time_dim: int = TGN_TIME_DIM,
         edge_feat_dim: int = TGN_EDGE_DIM,
-        log_dir: str | Path = "datasets",
+        log_dir: str | Path = "data",
     ) -> None:
         """Initialize the inference service and load a checkpoint if provided."""
 

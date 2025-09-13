@@ -29,3 +29,9 @@ python -m model.evaluation.baseline_eval \
   --min-support 1 \
   --k 5 10 20
 ```
+
+Windows (single-line command):
+
+```bash
+python -m model.evaluation.baseline_eval --events data/events.jsonl --outdir data/eval_predictive --window-minutes 60 --horizon-minutes 120 --emergence-threshold 8 --min-growth 4 --min-support 1 --k 5 10 20
+```

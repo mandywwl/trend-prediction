@@ -47,8 +47,8 @@ DEFAULT_TRENDING_TOPICS = [
                     "streaming services", "remote work", "social media", "gaming",
                     "cryptocurrency", "space exploration", "renewable energy"
                 ]                        # Default topics if none found
-TWITTER_SIM_EVENTS_PER_BATCH: int = 4    # Number of simulated events per batch
-TWITTER_SIM_BATCH_INTERVAL: int = 120    # 2 minutes in seconds; Twitter API rate limit
+TWITTER_SIM_EVENTS_PER_BATCH: int = 2    # Number of simulated events per batch (reduced to balance with YouTube)
+TWITTER_SIM_BATCH_INTERVAL: int = 300    # 5 minutes in seconds; Reduced frequency to balance data sources
 TRENDS_CATEGORY: str = "all"             # Google trends category; "all" for all categories
 TRENDS_COUNT: int = 8                    # Number of trending topics to fetch
 TRENDS_INTERVAL_SEC: int = 1800          # 30 minutes in seconds; Google trends refresh interval
@@ -71,7 +71,7 @@ PERIODIC_REBUILD_SECS: int = 604800  # 1 week rebuild of events DB
 DELTA_HOURS: int = 2                 # Δ
 WINDOW_MIN: int = 60                 # W
 K_DEFAULT: int = 5                   # metrics Prec@K default
-K_OPTIONS: tuple[int, ...] = (5, 10) # metrics Prec@K options
+K_OPTIONS: tuple[int, ...] = (3, 5, 10, 15, 20) # metrics Prec@K options (expanded for better dashboard flexibility)
 
 # ------- Exponential factor bases for metrics normalization -------
 GROWTH_FACTOR_BASE: float = 2.0     # Base for exponential growth factor
