@@ -6,7 +6,6 @@ import threading
 import signal
 import time
 import json
-import queue
 import numpy as np
 import random
 
@@ -18,8 +17,7 @@ from service.runtime_glue import RuntimeGlue, RuntimeConfig
 from model.inference.spam_filter import SpamScorer
 from model.inference.adaptive_thresholds import SensitivityController
 
-from utils.io import ensure_dir
-from utils.logging import get_logger, service_logger, setup_logging
+from utils.logging import get_logger, setup_logging
 from config.config import (
     PROJECT_ROOT,
     TOPIC_LOOKUP_PATH,
