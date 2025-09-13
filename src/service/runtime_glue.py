@@ -1,11 +1,18 @@
-"""Runtime glue for streaming trend prediction service.
+"""Runtime orchestration layer for streaming trend prediction service.
 
-Provides a single entrypoint that:
-- Runs the stream loop calling EventHandler.on_event
-- Periodically resolves Δ-frozen predictions into Precision@K
-- Writes hourly metrics and updates dashboard cache
-- Supports YAML config overrides
-- Handles graceful SIGINT shutdown
+Bridges event processing, metrics collection, and dashboard data management.
+
+Key Features:
+- Processes streaming events via EventHandler.on_event()
+- Tracks Precision@K, adaptivity, latency, and robustness metrics
+- Background thread for periodic dashboard cache and metrics updates
+- Topic ID mapping and label generation pipeline integration
+- YAML-configurable parameters and graceful shutdown handling
+
+Main Components:
+- RuntimeConfig: Configuration with YAML override support
+- RuntimeGlue: Main orchestrator coordinating stream processing and metrics
+- Background services for dashboard updates and topic labeling
 """
 
 import json
@@ -14,7 +21,6 @@ import threading
 import traceback
 import hashlib
 import logging
-import numpy as np
 
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -32,7 +38,6 @@ from config.config import (
     TOPIC_LOOKUP_PATH,
     METRICS_LOOKUP_PATH,
     EVENT_JSONL_PATH,
-    DATA_DIR,
 )
 from config.schemas import (
     Event,
