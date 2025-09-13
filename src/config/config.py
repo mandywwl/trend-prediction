@@ -102,3 +102,10 @@ LABEL_WINDOW_H = 1             # smoothing window for counts (rolling)
 LABEL_TYPE = "logdiff"         # one of {"diff", "pct", "logdiff"}
 LABEL_EPS = 1.0                # epsilon to stabilise logs/ratios
 
+# ------------ 
+WINDOW_MINUTES = 60                # size of historical aggregation window (for features/candidates)
+HORIZON_MINUTES = 60               # future emergence window
+MIN_GROWTH = 3                     # future count − past count (or slope) threshold
+MIN_SUPPORT = 1                    # minimum occurrences before considering an item at all
+K_VALUES = [5, 10, 20]             # e.g., [5, 10, 20]
+HOLDOUT_DAYS = 0                   # optional temporal holdout at the end for a final report

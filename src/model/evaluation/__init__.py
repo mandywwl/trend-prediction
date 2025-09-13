@@ -1,6 +1,4 @@
 """Model evaluation components."""
+from .baseline_eval import evaluate
 
-from .metrics import *  # noqa: F401,F403
-from .baseline_eval import evaluate_baselines
-
-__all__ = ["evaluate_baselines"]
+__all__ = ["evaluate"]

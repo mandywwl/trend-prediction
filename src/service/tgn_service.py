@@ -348,7 +348,48 @@ class TGNInferenceService:
             # Never block or fail on logging
             pass
 
-    # ------------------------------------------------------------------
+
+    # --------------------------------------------
+    def score_items_at_time(
+        self,
+        items: list[str] | tuple[str, ...],
+        t_end_s: int | float,
+        *,
+        features: dict | None = None,
+        mutate: bool = False,
+    ) -> Dict[str, float]:
+        """
+        Score a list of item_ids at timestamp t_end_s using current memory.
+        If mutate=False (default), the method DOES NOT call memory.update_state(),
+        so it is safe to use during evaluation without changing model state.
+        """
+        if not items:
+            return {}
+
+        # Ensure stable "probe" actor exists; maps to a single node index
+        probe_idx = self._get_or_assign_idx("__probe__")
+
+        # Time & edge features (shared across batch)
+        t_tensor = torch.tensor([float(t_end_s)], dtype=torch.float32, device=self.device)
+        e_attr = self._edge_attr_from_features(features).view(1, -1)
+
+        # Resolve / allocate destination indices (will reuse existing memory slots)
+        dst_indices = [self._get_or_assign_idx(str(it)) for it in items]
+        src = torch.tensor([probe_idx] * len(items), dtype=torch.long, device=self.device)
+        dst = torch.tensor(dst_indices, dtype=torch.long, device=self.device)
+        t = t_tensor.repeat(len(items))
+        e = e_attr.repeat(len(items), 1)
+
+        self.model.eval()
+        with torch.no_grad():
+            if mutate:
+                # Mutating path (rarely needed in eval): update memory first
+                self.model.memory.update_state(src, dst, t.long(), e)
+            out = self.model(src, dst, t, e).view(-1) # Forward pass reads current memory state
+
+        return {it: float(s) for it, s in zip(items, out.tolist())}
+    # ---------------------------------------------------------------------------
+
     def update_and_score(self, event: Event) -> Dict[str, float]:
         """Update the TGN with the event and return the predicted growth score.
 
@@ -440,45 +481,6 @@ class TGNInferenceService:
 
         # Log latencies (append-only, non-blocking)
         self._log_latencies(update_ms, forward_ms)
-
-        # # ---- Map model heads to calibrated signals ----
-        # logits = logits.view(-1)
-
-        # # Emergence: probability to [0,1]
-        # emergence = torch.sigmoid(logits[0]).clamp(0.0, 1.0).item()
-
-        # # Growth: positive magnitude → normalise by EMA → squash to [0,1]
-        # #    - softplus ensures positivity (rate-like)
-        # #    - divide by EMA mean to express "relative growth" (stable across drift)
-        # #    - optional scaling by config.GROWTH_FACTOR_BASE to keep early training in-range
-        # g_pos = torch.nn.functional.softplus(logits[1]).item()
-        # self._ema_growth_mu, self._ema_growth_var = self._ema_update(
-        #     g_pos, self._ema_growth_mu, self._ema_growth_var
-        # )
-        # # relative to recent typical value; avoid div-by-0
-        # g_rel = g_pos / (self._ema_growth_mu + 1e-6)
-
-        # # For growth "per Δ" semantics, fold in Δ here (light heuristic):
-        # # e.g., more Δ hours => slightly stricter normalisation
-        # delta_scale = max(1.0, float(DELTA_HOURS) / 2.0)
-        # g_norm = g_rel / (float(GROWTH_FACTOR_BASE) * delta_scale)
-
-        # growth_rate = float(min(1.0, max(0.0, g_norm))) # clamp to [0,1] for stability
-
-        # # Diffusion: standardise raw head by EMA -> z-score -> sigmoid to [0,1]
-        # d_raw = logits[2].item()
-        # self._ema_diff_mu, self._ema_diff_var = self._ema_update(
-        #     d_raw, self._ema_diff_mu, self._ema_diff_var
-        # )
-        # d_std = math.sqrt(max(self._ema_diff_var, 1e-6))
-        # z = (d_raw - self._ema_diff_mu) / d_std
-        # diffusion = float(torch.sigmoid(torch.tensor(z)).item())
-
-        # return {
-        #     "emergence_probability": float(emergence),
-        #     "growth_rate": float(growth_rate),
-        #     "diffusion_score": float(diffusion),
-        # }
 
         # --- Single growth signal ----
         growth_raw = float(score_tensor.squeeze().item())
