@@ -67,7 +67,7 @@ def _read_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def _read_adaptive_log(log_path: Path) -> List[RobustnessSnapshot]:
-    """Read `datasets/adaptive_thresholds.log` entries into snapshots.
+    """Read `data/adaptive_thresholds.log` entries into snapshots.
 
     Expected records include actions like `thresholds_updated` with fields
     `theta_g`, `theta_u`, and optionally `spam_rate`.

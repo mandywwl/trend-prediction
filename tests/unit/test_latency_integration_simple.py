@@ -179,7 +179,7 @@ def test_runtime_glue_integration():
         
         # Create RuntimeGlue with mock handler
         config = RuntimeConfig(
-            metrics_snapshot_dir="datasets/test_metrics",
+            metrics_snapshot_dir="data/test_metrics",
             enable_background_timer=False
         )
         
@@ -189,7 +189,7 @@ def test_runtime_glue_integration():
         runtime_glue._update_metrics_and_cache()
         
         # Check that metrics files were created
-        metrics_dir = Path("datasets/test_metrics")
+        metrics_dir = Path("data/test_metrics")
         metrics_files = list(metrics_dir.glob("metrics_*.json"))
         
         if metrics_files:

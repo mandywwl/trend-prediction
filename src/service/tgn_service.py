@@ -64,7 +64,7 @@ class TGNInferenceService:
     """Online inference wrapper for a trained TGN.
 
     Usage:
-        service = TGNInferenceService(checkpoint_path="datasets/tgn_model.pt")
+        service = TGNInferenceService(checkpoint_path="data/tgn_model.pt")
         scores = service.update_and_score(event)
     """
 

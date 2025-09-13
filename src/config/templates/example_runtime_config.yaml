@@ -13,9 +13,9 @@ runtime:
   k_options: [3, 5, 10, 20]       # Available K options for dashboard
   
   # File paths (optional - will use defaults if not specified)
-  # metrics_snapshot_dir: "./datasets/metrics"
-  # predictions_cache_path: "./datasets/predictions_cache.json" 
-  # topic_lookup_path: "./datasets/topic_lookup.json"
+  # metrics_snapshot_dir: "./data/metrics"
+  # predictions_cache_path: "./data/predictions_cache.json" 
+  # topic_lookup_path: "./data/topic_lookup.json"
 
 # Example usage:
 # python src/service/main.py runtime_config.yaml

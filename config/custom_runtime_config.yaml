@@ -1,0 +1,20 @@
+# Custom runtime configuration for trend prediction service
+# This file can override values from config.py
+
+runtime:
+  # Dashboard update settings
+  update_interval_sec: 30          # Update dashboard every 30 seconds (default: 60)
+  enable_background_timer: true    # Enable continuous updates
+  
+  # Prediction parameters (these override config.py values)
+  delta_hours: 3                   # Time window for predictions (default: 2)
+  window_min: 90                   # Rolling window in minutes (default: 60)
+  k_default: 10                    # Default number of top predictions (default: 5)
+  k_options: [5, 10, 15, 20]       # Available K options (default: [5, 10])
+  
+  # Optional: Override file paths
+  # metrics_snapshot_dir: "./my_custom_metrics"
+  # predictions_cache_path: "./my_custom_cache.json"
+
+# Usage:
+# python src/service/main.py config/custom_runtime_config.yaml

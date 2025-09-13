@@ -64,7 +64,7 @@ def test_latency_integration():
         config = RuntimeConfig(
             update_interval_sec=1,  # Quick updates for testing
             enable_background_timer=False,  # Disable background timer for test
-            metrics_snapshot_dir="datasets/metrics_hourly"
+            metrics_snapshot_dir="data/metrics_hourly"
         )
         
         runtime_glue = RuntimeGlue(event_handler, config)
@@ -112,7 +112,7 @@ def test_latency_integration():
         runtime_glue._update_metrics_and_cache()
         
         # Check that metrics files were created with real latency data
-        metrics_dir = Path("datasets/metrics_hourly")
+        metrics_dir = Path("data/metrics_hourly")
         metrics_dir.mkdir(parents=True, exist_ok=True)
         
         # Find the most recent metrics file

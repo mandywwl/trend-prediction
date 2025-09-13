@@ -5,8 +5,25 @@ A real-time trend prediction model using Temporal Graph Networks (TGN) to identi
 ## 🎯 Features
 
 - **Multi-Source Data Collection**: Twitter/X, YouTube, Google Trends
-- **Real-time Trend Prediction**: TGN-based emergence detection with Top-K predictions
-- **Adaptive Spam Filtering**: Dynamic threshold adjustment for spam resilience
+- **TGN-Based Prediction**: Temporal Graph Network model for growth score prediction
+- **Adaptive System**:
+  - Dynamic spam filtering with edge weight adjustment
+  - Adaptive threshold control based on spam rates
+  - Back-pressure mechanisms for latency management
+- **Automated Pipeline**:
+  - Periodic model retraining (configurable, default: weekly)
+  - Topic labeling pipeline for meaningful trend names
+  - Database storage with SQLite backend
+- **Live Dashboard**: Streamlit-based monitoring with:
+  - Top-K predictions with confidence scores
+  - Δ-hour label freeze for evaluation
+  - Latency tracking (P50/P95) with SLO monitoring
+  - Robustness metrics and spam rate visualization
+- **Production Features**:
+  - Hot-reload of model checkpoints
+  - Graceful shutdown handling
+  - Event logging (JSONL + database)
+  - Configurable runtime parameters via YAML
 - **SLO Monitoring**: Latency tracking with P50/P95 metrics
 - **Live Dashboard**: Streamlit-based monitoring interface
 - **Automatic Retraining**: Weekly model updates based on collected data
@@ -18,53 +35,56 @@ A real-time trend prediction model using Temporal Graph Networks (TGN) to identi
 - 4GB+ RAM (8GB recommended)
 - Optional: NVIDIA GPU with CUDA 11.8+ for accelerated training
 
-## 🚀 Installation Guide for End Users
+## 🚀 Quick Start Installation
 
-### Quick Start (Simple Installation)
-
-1. **Clone the repository**
+1. **Clone and Setup Environment**
 
     ```bash
     git clone <repository-url>
     cd trend-prediction
-    ```
 
-2. **Create and activate virtual environment**
-
-    ``` bash
-    # Windows
+    # Create and activate virtual environment
     python -m venv .venv
+
+    # Windows
     .venv\Scripts\activate
 
     # Linux/Mac
-    python3 -m venv .venv
     source .venv/bin/activate
     ```
 
-3. **Install dependencies (CPU-only)**
+2. **Install dependencies**
 
     ```bash
     pip install --upgrade pip
     pip install -e .
+
+    # For CPU-only installation
     pip install -r requirements-cpu.txt
+
+    # For GPU support
+    pip install -r requirements-cuda118.txt --extra-index-url https://download.pytorch.org/whl/cu118
     ```
 
-4. **Set up API credentials**
+3. **Configure API credentials**
 
     ```bash
     cp .env.example .env
-    # Edit .env file and add your API keys:
-    # - TWITTER_BEARER_TOKEN (optional)
-    # - YOUTUBE_API_KEY (optional)
+    # Edit .env and add your API keys:
+    # TWITTER_BEARER_TOKEN=your_token_here  (optional - uses simulation if not provided)
+    # YOUTUBE_API_KEY=your_key_here
     ```
 
-5. **Start the service**
+4. **Start the service**
 
     ```bash
     python src/service/main.py
+
+    # Optional: provide custom configuration
+    python src/service/main.py config/custom_runtime_config.yaml
     ```
 
-6. **Open the dashboard** (in a new terminal)
+5. **Open the dashboard** (in a new terminal)
 
     ```bash
     streamlit run dashboard/app.py
@@ -72,120 +92,107 @@ A real-time trend prediction model using Temporal Graph Networks (TGN) to identi
 
     Visit <http://localhost:8501> to view the dashboard.
 
-### What You'll See
+## 📊 System Architecture
 
-- **Live Predictions**: Top trending topics with confidence scores
-- **Countdown Timers**: Time until predictions are frozen (Δ-freeze)
-- **System Health**: Latency metrics and SLO compliance status
+### Data Flow Pipeline
 
-## 👩‍💻 Installation Guide for Developers
+1. **Collection**: Multi-source event ingestion with simulated fallbacks
+2. **Preprocessing**: Real-time text embedding using DistilBERT
+3. **Spam Scoring**: Heuristic-based spam detection and edge weighting
+4. **Graph Building**: Temporal graph construction with LRU node management
+5. **TGN Inference**: Growth score prediction via temporal memory networks
+6. **Evaluation**: Online Precision@K with Δ-hour label freeze
+7. **Monitoring**: Real-time metrics, latency tracking, and dashboard updates
 
-### Development Setup
+### Key Components
 
-1. Clone and setup development environment
+- **EventHandler**: Orchestrates preprocessing, spam filtering, and TGN updates
+- **RuntimeGlue**: Manages streaming loop, metrics computation, and cache updates
+- **TGNInferenceService**: Wraps trained TGN model for online inference
+- **SensitivityController**: Adaptive threshold management based on spam rates
+- **TrainingScheduler**: Automated periodic retraining with database integration
 
-    ```bash
-    git clone <repository-url>
-    cd trend-prediction
+## 🔧 Configuration
 
-    # Create virtual environment
-    python3.10 -m venv .venv
-    source .venv/bin/activate  # Linux/Mac
-    # or
-    .venv\Scripts\activate  # Windows
-    ```
+### Runtime Configuration (YAML)
 
-2. Install in development mode with GPU support (optional)
+Create a runtime_config.yaml:
 
-    ```bash
-    pip install --upgrade pip setuptools wheel
-
-    # For CPU-only development
-    pip install -e .
-    pip install -r requirements-cpu.txt
-
-    # For CUDA 11.8 GPU support
-    pip install -r requirements-cuda118.txt --extra-index-url https://download.pytorch.org/whl/cu118
-    ```
-
-3. Configure environment
-
-    ```bash
-    cp .env.example .env
-    ```
-
-    **Edit .env with your API credentials:**
-
-    ```env
-    TWITTER_BEARER_TOKEN=your_twitter_bearer_token_here
-    YOUTUBE_API_KEY=your_youtube_api_key_here
-    ```
-
-4. Run tests
-
-    ```bash
-    # Unit tests
-    pytest tests/unit/
-
-    # Integration tests
-    pytest tests/integration/
-
-    # All tests with coverage
-    pytest --cov=src tests/
-    ```
-
-### Running the Full Pipeline
-
-#### Option 1: Unified Service (Recommended)
-
-```bash
-# Start main service with all components
-python src/service/main.py
-
-# Optional: provide custom config
-python src/service/main.py config/custom.yaml
+```yaml
+runtime:
+  update_interval_sec: 60          # Dashboard update frequency
+  enable_background_timer: true    # Enable continuous updates
+  delta_hours: 2                   # Prediction freeze window
+  window_min: 60                   # Rolling window in minutes
+  k_default: 5                     # Default Top-K predictions
+  k_options: [3, 5, 10, 20]       # Available K values
 ```
 
-#### Option 2: Component Testing
+### Key Configuration Parameters (src/config/config.py)
 
-**Test data collectors individually:**
+- **Model Settings:**
+  - `TGN_MEMORY_DIM`: 100 (memory dimension)
+  - `TGN_TIME_DIM`: 10 (time encoding dimension)
+  - `TRAIN_EPOCHS`: 8 (training epochs)
+
+- **Evaluation:**
+  - `DELTA_HOURS`: 2 (label freeze window)
+  - `WINDOW_MIN`: 60 (evaluation window)
+
+- **Performance:**
+  - `SLO_MED_MS`: 1000 (median latency SLO)
+  - `SLO_P95_MS`: 2000 (P95 latency SLO)
+
+- **Training:**
+  - `TRAINING_INTERVAL_HOURS`: 168 (weekly)
+  - `MIN_EVENTS_FOR_TRAINING`: 100
+
+## 👩‍💻 Development Guide
+
+### Running Tests
 
 ```bash
-# Simulate data collection
-python tests/integration/run_ingestion_sim.py
+# Unit tests
+pytest tests/unit/
+
+#  Integration tests  
+pytest tests/integration/
+
+# All tests with coverage
+pytest --cov=src tests/
 ```
 
-**Test preprocessing:**
+### Training the Model
 
 ```bash
-# Build TGN edge file from collected events
-python -c "from data_pipeline.processors.preprocessing import build_tgn; build_tgn()"
-python -m data_pipeline.processors.preprocessing # OR run script directly from module
+# Preprocess events to create TGN edge file
+python -m data_pipeline.processors.preprocessing
 
-# Generate meaningful topic labels from textual examples
-python scripts/update_topic_labels.py
-```
-
-**Test model training:**
-
-```bash
-# Run training with noise injection
+# Train TGN model
 python src/model/training/train.py
 
 # Hyperparameter tuning
 python src/model/training/tune.py
 ```
 
-### Dashboard Development
+### Working with Components
+
+#### Test data collection only
 
 ```bash
-# Run dashboard with hot-reload
-streamlit run dashboard/app.py --server.runOnSave true
+python tests/integration/run_ingestion_sim.py
+```
 
-# Test individual panels
-python -m dashboard.components.topk
-python -m dashboard.components.latency
-python -m dashboard.components.robustness
+#### Update topic labels
+
+```bash
+python scripts/update_topic_labels.py
+```
+
+#### Evaluate model performance
+
+```bash
+python -m model.evaluation.baseline_eval --events data/events.jsonl --outdir data/eval_predictive
 ```
 
 ### Project Structure
@@ -193,113 +200,137 @@ python -m dashboard.components.robustness
 ```text
 trend-prediction/
 ├── src/
-│   ├── config/           # Configuration and schemas
-│   ├── data_pipeline/    # Data collection & processing
-│   │   ├── collectors/   # Twitter, YouTube, Google Trends
-│   │   ├── processors/   # Text embedding, preprocessing
-│   │   └── storage/      # Graph builder, database
-│   ├── model/            # ML components
-│   │   ├── core/         # TGN model implementation
-│   │   ├── training/     # Training utilities
-│   │   └── inference/    # Spam filter, adaptive thresholds
-│   ├── service/          # Service orchestration
-│   └── utils/            # Helper utilities
-├── dashboard/            # Streamlit dashboard
-│   ├── components/       # Panel implementations
-│   └── layouts/          # UI helpers
-├── tests/                # Test suite
-├── datasets/             # Data storage (auto-created)
-└── logs/                 # Service logs (auto-created)
+│   ├── config/               # Configuration and schemas
+│   ├── data_pipeline/        # Data collection & processing
+│   │   ├── collectors/       # Twitter, YouTube, Google Trends
+│   │   ├── processors/       # Embedding, preprocessing, labeling
+│   │   └── storage/         # Graph builder, database, decay
+│   ├── model/               # ML components
+│   │   ├── core/           # TGN model, losses
+│   │   ├── training/       # Training, noise injection, tuning
+│   │   ├── inference/      # Spam filter, adaptive thresholds
+│   │   └── evaluation/     # Metrics, baseline evaluation
+│   ├── service/            # Service orchestration
+│   │   ├── main.py        # Main entry point
+│   │   ├── runtime_glue.py # Stream processing & metrics
+│   │   ├── tgn_service.py  # TGN inference wrapper
+│   │   └── training_scheduler.py # Automated retraining
+│   └── utils/              # Helper utilities
+├── dashboard/              # Streamlit dashboard
+├── tests/                  # Test suite
+├── data/                  # Data storage (auto-created)
+│   ├── events.jsonl       # Raw event stream
+│   ├── events.db          # SQLite database
+│   ├── tgn_edges_basic.npz # Preprocessed graph data
+│   ├── tgn_model.pt       # Trained model checkpoint
+│   ├── predictions_cache.json # Dashboard cache
+│   └── metrics_hourly/    # Hourly metrics snapshots
 ```
 
-### Key Configuration Files
+## 📊 Understanding the Metrics
 
-`src/config/config.py` - Main configuration constants:
+### Precision@K
 
-- `DELTA_HOURS`: Prediction freeze window (default: 2)
-- `WINDOW_MIN`: Evaluation window (default: 60)
-- `SLO_MED_MS`: Median latency SLO (default: 1000ms)
-- `SLO_P95_MS`: P95 latency SLO (default: 2000ms)
+- Measures accuracy of Top-K predictions
+- Uses Δ-hour label freeze for fair evaluation
+- Computed over rolling window (default: 60 minutes)
 
-### Development Workflow
+### Latency Tracking
 
-1. **Add new data source**:
-    - Create collector in `src/data_pipeline/collectors/`
-    - Implement `BaseCollector` interface
-    - Add to `src/service/main.py` event stream
+- **P50/P95**: Median and 95th percentile latencies
+- **Per-stage breakdown**: Ingest, preprocess, model, postprocess
+- **SLO compliance**: Visual indicators for target thresholds
 
-2. **Modify model architecture**:
-    - Edit `src/model/core/tgn.py`
-    - Update training in `src/model/training/train.py`
-    - Add tests in `tests/unit/`
-3. **Add dashboard panel**:
-    - Create component in `dashboard/components/`
-    - Register in `dashboard/app.py`
-    - Use shared layouts from `dashboard/layouts/`
+### Robustness Metrics
 
-### Monitoring & Debugging
-
-**Check logs:**
-
-```bash
-tail -f datasets/*.log
-tail -f datasets/metrics_hourly/*.json
-```
-
-**Monitor predictions cache:**
-
-```bash
-watch -n 5 "cat datasets/predictions_cache.json | python -m json.tool | head -20"
-```
-
-**Test adaptive thresholds:**
-
-```bash
-python tests/unit/test_adaptive_thresholds.py
-```
-
-## 📊 Understanding the System
-
-### Data Flow
-
-1. **Collection**: Real-time events from social platforms
-2. **Processing**: Text embedding, spam scoring, timestamp normalization
-3. **Graph Building**: Temporal edge stream construction
-4. **Model Inference**: TGN forward pass for trend scoring
-5. **Evaluation**: Precision@K with Δ-hour label freeze
-6. **Monitoring**: Latency tracking, SLO compliance, drift detection
-
-### Key Metrics
-
-- **Precision@K**: Accuracy of Top-K predictions
-- **Latency P50/P95**: Service response time percentiles
 - **Spam Rate**: Percentage of detected spam events
-- **Adaptivity Score**: Model adjustment to distribution shifts
+- **Downweighted %**: Edges with reduced influence
+- **θ_g, θ_u**: Adaptive threshold values
 
-### API Endpoints
+### Adaptivity Score
 
-The service doesn't expose REST APIs directly but uses an event-driven architecture. Events flow through:
-
-- Collectors → EventHandler → GraphBuilder → TGN Model → Metrics → Dashboard
+- Measures model's ability to adjust to distribution shifts
+- Based on MAPE (Mean Absolute Percentage Error) decay
 
 ## 🔧 Troubleshooting
 
 ### Common Issues
 
-**No predictions showing:**
+### **No predictions showing:**
 
-- Check if collectors are running: `tail -f datasets/events.jsonl`
-- Verify API keys in `.env` file
-- Ensure preprocessing has run: `ls datasets/tgn_edges_basic.npz`
+- Check collectors are running: `tail -f data/events.jsonl`
+- Verify preprocessing: `ls -la data/tgn_edges_basic.npz`
+- Check model checkpoint: `ls -la data/tgn_model.pt`
 
-**High latency warnings:**
+### **High latency warnings:**
 
-- Reduce batch size in `RealtimeTextEmbedder`
-- Switch to CPU if GPU memory is limited
-- Check `datasets/tgn_inference.log` for bottlenecks
+- Reduce `EMBEDDER_BATCH_SIZE` in config
+- Check GPU memory if using CUDA
+- Monitor `data/tgn_inference.log`
 
-**Dashboard not updating:**
+### **Dashboard not updating:**
 
-- Verify predictions cache: `cat datasets/predictions_cache.json`
-- Check metrics directory: `ls datasets/metrics_hourly/`
-- Restart dashboard: `streamlit run dashboard/app.py`
+- Check background timer is enabled in config
+- Verify predictions cache: `cat data/predictions_cache.json`
+- Check metrics: `ls data/metrics_hourly/`
+- Restart dashboard if needed
+
+### **Database issues:**
+
+- Check database file: `ls -la data/events.db`
+- Verify write permissions in data directory
+- Check disk space availability
+
+## 🚦 Monitoring & Operations
+
+### **Log Files**
+
+- `data/events.jsonl`: Raw event stream
+- `data/tgn_inference.log`: Model latency tracking
+- `data/emergence_labels.log`: Label decisions
+- `data/adaptive_thresholds.log`: Threshold adjustments
+
+### Health Checks
+
+```bash
+# Check event ingestion rate
+tail -f data/events.jsonl | grep -c "timestamp"
+
+# Monitor model inference
+tail -f data/tgn_inference.log
+
+# Watch predictions cache updates
+watch -n 5 "cat data/predictions_cache.json | python -m json.tool | head -20"
+```
+
+### Performance Tuning
+
+- Adjust `EMBEDDER_BATCH_SIZE` for throughput/latency trade-off
+- Tune `SPAM_WINDOW_MIN` for spam detection sensitivity
+- Modify `THRESH_RAISE_FACTOR` for adaptive threshold aggressiveness
+- Set `TRAINING_INTERVAL_HOURS` based on data velocity
+
+## 🎓 Technical Details
+
+### TGN Model
+
+- Temporal Graph Network with memory module
+- Growth score prediction via regression head
+- Online memory updates with LRU eviction
+- Configurable memory and time dimensions
+
+### Adaptive Mechanisms
+
+- Spam-aware edge weighting (half-life decay + spam score)
+- Dynamic threshold adjustment based on spam rates
+- Back-pressure control for latency management
+- EMA calibration for stable predictions
+
+### Data Sources
+
+- Twitter/X: Real API or realistic simulation
+- TikTok — using Playwright + ViT + CLIP: *(TBA)*
+- YouTube: API integration with trending videos
+- Google Trends: Real API *(TBA)* or Time-aware trend simulation
+
+## 📃 Documentation

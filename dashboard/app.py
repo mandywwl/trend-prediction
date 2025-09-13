@@ -249,8 +249,8 @@ def render_robustness_panel():
             
             with col_b:
                 st.write("**Data Sources:**")
-                st.write("- `datasets/adaptive_thresholds.log`")
-                st.write("- `datasets/events.jsonl`")
+                st.write("- `data/adaptive_thresholds.log`")
+                st.write("- `data/events.jsonl`")
                 st.write("- Hourly metrics snapshots")
         
         # Show panel status in sidebar

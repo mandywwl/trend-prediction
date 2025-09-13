@@ -261,8 +261,8 @@ class TestTopicLabelingFunction:
         
         # Should instantiate TopicLabeler with default paths
         mock_labeler_class.assert_called_once_with(
-            events_path="datasets/events.jsonl",
-            topic_lookup_path="datasets/topic_lookup.json"
+            events_path="data/events.jsonl",
+            topic_lookup_path="data/topic_lookup.json"
         )
         
         # Should call the pipeline

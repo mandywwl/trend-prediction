@@ -415,7 +415,7 @@ def evaluate(df: pd.DataFrame, outdir: Path) -> None:
 def parse_args():
     ap = argparse.ArgumentParser("Predictive baseline/TGN evaluation")
     ap.add_argument("--events", required=True, help="Path to events file (jsonl/csv/parquet)")
-    ap.add_argument("--outdir", default="datasets/eval_predictive", help="Output directory for metrics")
+    ap.add_argument("--outdir", default="data/eval_predictive", help="Output directory for metrics")
     # Optional overrides
     ap.add_argument("--window-minutes", type=int)
     ap.add_argument("--horizon-minutes", type=int)

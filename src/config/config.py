@@ -5,7 +5,7 @@ from utils.path_utils import find_repo_root
 
 # ----- Base directory configuration -------
 PROJECT_ROOT = find_repo_root()
-DATA_DIR: Path = PROJECT_ROOT / "datasets"
+DATA_DIR: Path = PROJECT_ROOT / "data"
 
 # ------ IO paths (keep existing if already defined elsewhere) -------
 METRICS_SNAPSHOT_DIR: Path = DATA_DIR / "metrics_hourly"

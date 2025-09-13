@@ -462,7 +462,7 @@ class IntegratedEventHandler(EventHandler):
             
             # Run the pipeline to generate meaningful labels
             result = run_topic_labeling_pipeline(
-                events_path="datasets/events.jsonl",
+                events_path="data/events.jsonl",
                 topic_lookup_path=str(self.topic_lookup_path),
                 use_embedder=False  # Use TF-IDF only for better performance
             )

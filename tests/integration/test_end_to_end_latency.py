@@ -110,7 +110,7 @@ def test_end_to_end_latency():
         config = RuntimeConfig(
             update_interval_sec=1,
             enable_background_timer=False,  # Disable for test
-            metrics_snapshot_dir="datasets/metrics_hourly"
+            metrics_snapshot_dir="data/metrics_hourly"
         )
         
         runtime_glue = RuntimeGlue(event_handler, config)
@@ -123,7 +123,7 @@ def test_end_to_end_latency():
         # Phase 6: Verify Metrics Files
         print("\n📊 Phase 6: Verifying metrics files...")
         
-        metrics_dir = Path("datasets/metrics_hourly")
+        metrics_dir = Path("data/metrics_hourly")
         if not metrics_dir.exists():
             print("❌ Metrics directory not found")
             return False

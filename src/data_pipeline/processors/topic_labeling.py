@@ -22,7 +22,7 @@ class TopicLabeler:
     
     def __init__(
         self,
-        events_path: str = "datasets/events.jsonl",
+        events_path: str = "data/events.jsonl",
         topic_lookup_path: str = TOPIC_LOOKUP_PATH,
         min_texts_per_topic: int = 3,
         max_clusters_per_topic: int = 3,
@@ -375,7 +375,7 @@ class TopicLabeler:
 
 
 def run_topic_labeling_pipeline(
-    events_path: str = "datasets/events.jsonl",
+    events_path: str = "data/events.jsonl",
     topic_lookup_path: str = TOPIC_LOOKUP_PATH,
     use_embedder: bool = False
 ) -> Dict[str, str]:

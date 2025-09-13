@@ -19,7 +19,7 @@ def test_spam_spike_raises_thresholds_and_restores():
         raise_factor=THRESH_RAISE_FACTOR,
         max_multiplier_of_baseline=2.0,
         decay_alpha=THRESH_DECAY_RATE,
-        log_path="datasets/test_adaptive_thresholds.log",
+        log_path="data/test_adaptive_thresholds.log",
     )
     ctrl = SensitivityController(config=cfg, slos=SLOs())
 
@@ -53,7 +53,7 @@ def test_latency_breach_triggers_back_pressure():
         baseline_theta_g=0.5,
         baseline_theta_u=0.5,
         window_size=20,
-        log_path="datasets/test_adaptive_thresholds.log",
+        log_path="data/test_adaptive_thresholds.log",
     )
     ctrl = SensitivityController(
         config=cfg, slos=SLOs(p50_ms=SLO_MED_MS, p95_ms=SLO_P95_MS)

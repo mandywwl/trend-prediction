@@ -118,7 +118,7 @@ def test_runtime_glue_has_latency_integration():
                 self.latency_aggregator.add_measurement(7, stage_ms)
         
         config = RuntimeConfig(
-            metrics_snapshot_dir="datasets/test_direct",
+            metrics_snapshot_dir="data/test_direct",
             enable_background_timer=False
         )
         
@@ -126,7 +126,7 @@ def test_runtime_glue_has_latency_integration():
         runtime_glue._update_metrics_and_cache()
         
         # Check that metrics files contain real latency data
-        metrics_dir = Path("datasets/test_direct")
+        metrics_dir = Path("data/test_direct")
         metrics_files = list(metrics_dir.glob("*.json"))
         
         if metrics_files:

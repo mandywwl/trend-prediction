@@ -156,12 +156,12 @@ cython_debug/
 .vscode/
 
 # Data files
-test_datasets/
-datasets/metrics_hourly/*.json
-datasets/predictions_cache.json
-datasets/events.jsonl
-datasets/events.db
-datasets/emergence_labels.log
-datasets/metrics_lookup.json
-datasets/checkpoint_*.pt
-datasets/final_checkpoint.pt
+test_data/
+data/metrics_hourly/*.json
+data/predictions_cache.json
+data/events.jsonl
+data/events.db
+data/emergence_labels.log
+data/metrics_lookup.json
+data/checkpoint_*.pt
+data/final_checkpoint.pt

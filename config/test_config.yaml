@@ -1,0 +1,6 @@
+# Test configuration with different values
+runtime:
+  delta_hours: 6
+  window_min: 120  
+  k_default: 20
+  update_interval_sec: 15
