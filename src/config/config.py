@@ -30,9 +30,13 @@ MAX_NODES: int = 1_000_000       # Max nodes in TGN graph
 # ------- Topic configuration -------
 TOPIC_REFRESH_EVERY: int = 100   # Refresh topics every N events
 TOPIC_REFRESH_SECS: int = 600    # 10 minutes in seconds; refresh interval
+LABELING_JUNK_FILTER: set[str] = {"official", "video", "music", "new", "latest", "trending",
+                                  "viral", "just", "fyp", "ft", "feat", "featuring", "ft.",
+                                  "news", "update", "overrated", "hottake", "hot", "fight",
+                                  "shorts","subscribe","channel","watch","like","share","clip","clips"}
 
 # ------- Embedding configuration -------
-TEXT_EMB_POLICY: str = "zeros"      # "zeros" | "mean" | "learned_unknown"
+EDGE_EMB_FALLBACK_POLICY: str = "zeros"      # "zeros" | "mean" | "learned_unknown"
 EMBEDDER_BATCH_SIZE: int = 8        # max batch size for embedder
 EMBEDDER_MAX_LATENCY_MS: int = 50   # max wait time to form
 EMBEDDER_P95_CPU_MS: int = 100      # p95 CPU time per batch
@@ -72,6 +76,7 @@ DELTA_HOURS: int = 2                 # Δ
 WINDOW_MIN: int = 60                 # W
 K_DEFAULT: int = 5                   # metrics Prec@K default
 K_OPTIONS: tuple[int, ...] = (3, 5, 10, 15, 20) # metrics Prec@K options (expanded for better dashboard flexibility)
+ADAPT_WINDOW_HOURS: int = 6          # hours to adapt to regime shifts
 
 # ------- Exponential factor bases for metrics normalization -------
 GROWTH_FACTOR_BASE: float = 2.0     # Base for exponential growth factor
@@ -87,6 +92,8 @@ SPAM_RATE_SPIKE: float = 0.20       # >=20% considered spike
 THRESH_RAISE_FACTOR: float = 1.20   # +20% during spike
 THRESH_DECAY_RATE: float = 0.9      # multiplicative decay per window
 EDGE_WEIGHT_MIN: float = 0.2        # clamp for down-weighting
+BASELINE_THETA_G: float = 1.0        # baseline threshold theta_g 
+BASELINE_THETA_U: float = 1.0        # baseline threshold theta_u
 
 # ---------- Synthetic noise injection ----------
 NOISE_P_DEFAULT: float = 0.08       # probability of noise event
@@ -102,7 +109,7 @@ LABEL_WINDOW_H = 1             # smoothing window for counts (rolling)
 LABEL_TYPE = "logdiff"         # one of {"diff", "pct", "logdiff"}
 LABEL_EPS = 1.0                # epsilon to stabilise logs/ratios
 
-# ------------ 
+# ------------ Candidate generation config ------------
 WINDOW_MINUTES = 60                # size of historical aggregation window (for features/candidates)
 HORIZON_MINUTES = 60               # future emergence window
 MIN_GROWTH = 3                     # future count − past count (or slope) threshold

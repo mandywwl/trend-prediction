@@ -18,6 +18,8 @@ from config.config import (
     SPAM_WINDOW_MIN,
     SLO_P95_MS,
     SLO_MED_MS,
+    BASELINE_THETA_G,
+    BASELINE_THETA_U,
 )
 
 
@@ -48,8 +50,8 @@ class SensitivityConfig:
         log_path: Filepath for append-only JSONL logs of changes.
     """
 
-    baseline_theta_g: float = 0.5
-    baseline_theta_u: float = 0.5
+    baseline_theta_g: float = BASELINE_THETA_G
+    baseline_theta_u: float = BASELINE_THETA_U
     window_size: int = 200
     raise_factor: float = THRESH_RAISE_FACTOR
     max_multiplier_of_baseline: float = 2.0
@@ -163,17 +165,6 @@ class SensitivityController:
 
             # Update back-pressure policy based on latency percentiles
             self._maybe_apply_back_pressure()
-
-            # # Log changes if any
-            # if (self._theta_g, self._theta_u) != prev_th:
-            #     self._log(
-            #         action="thresholds_updated",
-            #         payload={
-            #             "theta_g": self._theta_g,
-            #             "theta_u": self._theta_u,
-            #             "spam_rate": self._spam_rate(),
-            #         },
-            #     )
 
             # Log on change or cadence
             changed = (self._theta_g, self._theta_u) != prev_th

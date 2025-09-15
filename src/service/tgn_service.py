@@ -18,7 +18,7 @@ import torch
 from model.core.tgn import TGNModel
 from config.config import (
     MAX_NODES,
-    TEXT_EMB_POLICY,
+    EDGE_EMB_FALLBACK_POLICY,
     TGN_MEMORY_DIM,
     TGN_TIME_DIM,
     INFERENCE_DEVICE,
@@ -84,14 +84,8 @@ class TGNInferenceService:
         self.logger = logging.getLogger(__name__)
         self.device = torch.device(device)
         self.edge_dim = int(edge_feat_dim or TGN_EDGE_DIM or 768)
-        self.policy = TEXT_EMB_POLICY
+        self.policy = EDGE_EMB_FALLBACK_POLICY
 
-        # # Online calibraters for growth and diffusion heads
-        # self._ema_growth_mu = 0.0
-        # self._ema_growth_var = 1.0
-        # self._ema_diff_mu = 0.0
-        # self._ema_diff_var = 1.0
-        # self._ema_beta = 0.98 # smoothing factor
 
         # Optional online calibration for the single growth signal
         self._ema_growth_mu = 0.0
@@ -130,7 +124,7 @@ class TGNInferenceService:
         self._mean_emb = torch.zeros(self.edge_dim, dtype=torch.float32)
         self._mean_count = 0
 
-        # Learned unknown embedding (used when  TEXT_EMB_POLICY says so)
+        # Learned unknown embedding (used when  EDGE_EMB_FALLBACK_POLICY says so)
         self._learned_unknown = torch.nn.Parameter(torch.zeros(self.edge_dim, dtype=torch.float32))
 
         # Instantiate the model with the derived sizes
@@ -275,7 +269,7 @@ class TGNInferenceService:
     # ------------------------------------------------------------------
     def _edge_attr_from_features(self, features: dict | None) -> torch.Tensor:
         # existing: resolve v as the embedding vector 'text_emb' (float tensor)
-        policy = TEXT_EMB_POLICY
+        policy = EDGE_EMB_FALLBACK_POLICY
         if not features:
             if policy == "mean" and self._mean_count > 0: return self._mean_emb.to(self.device)
             if policy == "learned_unknown": return self._learned_unknown

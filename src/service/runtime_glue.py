@@ -65,6 +65,7 @@ class RuntimeConfig:
     metrics_lookup_path: str = METRICS_LOOKUP_PATH
     update_interval_sec: int = 60  # Update metrics every minute
     enable_background_timer: bool = True  # Enable background dashboard updates
+    cache_window_sec: int = 300   # Aggregate last 5 minutes of preds
     
     @classmethod
     def from_yaml(cls, yaml_path: Optional[str] = None) -> 'RuntimeConfig':
@@ -85,6 +86,7 @@ class RuntimeConfig:
             metrics_lookup_path=runtime_config.get('metrics_lookup_path', METRICS_LOOKUP_PATH),
             update_interval_sec=runtime_config.get('update_interval_sec', 60),
             enable_background_timer=runtime_config.get('enable_background_timer', True),
+            cache_window_sec=runtime_config.get('cache_window_sec', 300),
         )
 
 
@@ -241,7 +243,6 @@ class RuntimeGlue:
                 adaptivity_score = 0.0
 
             # Get real latency data from handler
-
             try:
                 if hasattr(self.event_handler, 'latency_aggregator'):
                     latency_summary = self.event_handler.latency_aggregator.get_summary()
@@ -295,16 +296,16 @@ class RuntimeGlue:
                     robustness_data = {
                         'spam_rate': 0.0,
                         'downweighted_pct': 0.0,
-                        'theta_g': 0.5,
-                        'theta_u': 0.4,
+                        'theta_g': 1.0,
+                        'theta_u': 1.0,
                     }
             except Exception as e:
                 print(f"[{now.isoformat()}] Error getting robustness data: {e}")
                 robustness_data = {
                     'spam_rate': 0.0,
                     'downweighted_pct': 0.0,
-                    'theta_g': 0.5,
-                    'theta_u': 0.4,
+                    'theta_g': 1.0,
+                    'theta_u': 1.0,
                 }
 
             # Create hourly metrics (now with real latency data and robustness data!)
@@ -338,8 +339,8 @@ class RuntimeGlue:
                     robustness={
                         'spam_rate': 0.0,
                         'downweighted_pct': 0.0,
-                        'theta_g': 0.5,
-                        'theta_u': 0.4,
+                        'theta_g': 1.0,
+                        'theta_u': 1.0,
                     },
                     meta={'service': 'runtime_glue'}
                 )
@@ -368,10 +369,15 @@ class RuntimeGlue:
             if not self._predictions_buffer:
                 return
             
-            # 1) Aggregate by topic_id across all events since the last update.
-            #    Use max(score) per topic to keep the strongest signal.
+            # 1) Aggregate by by topic_id over a rolling window
+            cutoff = now - timedelta(seconds=self.config.cache_window_sec)
+            kept: list[tuple[datetime, list[dict]]] = []
             agg: dict[int, float] = {}
-            for preds in self._predictions_buffer:
+
+            for ts, preds in self._predictions_buffer:
+                if ts < cutoff:
+                    continue
+                kept.append((ts, preds))
                 for item in preds:
                     try: 
                         tid = int(item.get("topic_id"))
@@ -382,14 +388,42 @@ class RuntimeGlue:
                         continue
                     if sc > agg.get(tid, float('-inf')):
                         agg[tid] = sc
+            # prune old entries, but keep recent ones for the next tick
+            self._predictions_buffer = kept
 
-            # 2) Take global top-K by score
-            pairs = sorted(agg.items(), key=lambda x: (-x[1], x[0]))  # sort by score desc, topic_id asc
+            # 2) Build label-level top-K for the dashboard
+            pairs = sorted(agg.items(), key=lambda x: (-x[1], x[0]))
             K_store = max(self.config.k_options) if getattr(self.config, "k_options", None) else self.config.k_default
-            topk = [{"topic_id": tid, "score": float(sc)} for tid, sc in pairs[:K_store]]
 
-            if not topk:
-                return
+            def norm_label(s: str) -> str:
+                # lowercase + collapse whitespace to merge near-duplicates
+                return " ".join(str(s).lower().split())
+
+            label_best: dict[str, dict] = {}  # norm_label -> {label, score, topic_id, group_size}
+            for tid, sc in pairs:
+                key = str(tid)
+                label = (
+                    self._topic_lookup.get(key)
+                    or self._metrics_lookup.get(key)
+                    or f"topic_{tid:06d}"
+                )
+                nl = norm_label(label)
+                entry = label_best.get(nl)
+                if entry is None or sc > entry["score"]:
+                    label_best[nl] = {"label": label, "score": float(sc), "topic_id": tid, "group_size": 1}
+                else:
+                    entry["group_size"] += 1
+
+            # Now take label-level top-K by score
+            label_ranked = sorted(label_best.values(), key=lambda d: (-d["score"], d["label"]))
+            topk = []
+            for d in label_ranked[:K_store]:
+                topk.append({
+                    "topic_id": d["topic_id"],      # representative id (highest score for this label)
+                    "label": d["label"],
+                    "score": d["score"],            # raw model score (keep for debug)
+                    "group_size": d["group_size"]   # how many topic_ids collapsed under this label
+                })
             
             # 3) Build and persist cache item
             cache_item = {"t_iso": now.isoformat(), "topk": topk}
@@ -420,49 +454,8 @@ class RuntimeGlue:
             # Log
             total_preds = sum(len(x) for x in self._predictions_buffer)
             print(f"[{now.isoformat()}] Aggregated {total_preds} preds ->  wrote {len(topk)} topics to cache")
-
-            # 4) Clear buffer after successful write
-            self._predictions_buffer.clear()
-
             print(f"[{now.isoformat()}] Updated predictions cache with {len(cache_data['items'])} items")
 
-
-
-                # # Use the most recent predictions
-                # latest_predictions = self._predictions_buffer[-1] if self._predictions_buffer else []
-                
-                # cache_item = CacheItem(
-                #     t_iso=now.isoformat(),
-                #     topk=latest_predictions[:self.config.k_default]  # Limit to k_default
-                # )
-                
-                # # Load existing cache or create new one
-                # cache_path = Path(self.config.predictions_cache_path)
-                # if cache_path.exists():
-                #     with open(cache_path, 'r', encoding='utf-8') as f:
-                #         cache_data = json.load(f)
-                # else:
-                #     cache_data = {"last_updated": "", "items": []}
-                
-                # # Update cache
-                # cache_data["last_updated"] = now.isoformat()
-                # cache_data["items"].append(cache_item)
-                
-                # # Keep only recent items (last hour)
-                # cutoff_time = now - timedelta(hours=1)
-                # cache_data["items"] = [
-                #     item for item in cache_data["items"]
-                #     if item.get("t_iso") and self._safe_parse_iso(item["t_iso"]) and 
-                #     self._safe_parse_iso(item["t_iso"]) > cutoff_time
-                # ]
-                
-                # # Write cache atomically
-                # temp_path = cache_path.with_suffix('.tmp')
-                # with open(temp_path, 'w', encoding='utf-8') as f:
-                #     json.dump(cache_data, f, indent=2)
-                # temp_path.replace(cache_path)
-                
-                # print(f"[{now.isoformat()}] Updated predictions cache with {len(cache_data['items'])} items")
 
         except Exception as e:
             print(f"[{now.isoformat()}] Error updating predictions cache: {e}")
@@ -471,31 +464,48 @@ class RuntimeGlue:
         """Update topic labels using the topic labeling pipeline."""
         try:
             from data_pipeline.processors.topic_labeling import run_topic_labeling_pipeline
+        except Exception as e:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Failed to import labeling pipeline: {e}")
+            return
             
-            print(f"[{datetime.now().isoformat()}] Running topic labeling pipeline...")
-            
+        print(f"[{datetime.now().isoformat()}] Running topic labeling pipeline...")
+
+        before = dict(self._topic_lookup)  # snapshot before
+        after: dict[str, str] = {}
+
+        try:
             # Run the pipeline to generate meaningful labels
             result = run_topic_labeling_pipeline(
                 events_path=str(EVENT_JSONL_PATH),
                 topic_lookup_path=str(self._topic_lookup_path),
                 use_embedder=False  # Use TF-IDF only for better performance
             )
-            
-            # Reload the updated lookup
+        except Exception as e:
+            print(f"[{datetime.now().isoformat()}] Error running topic labeling pipeline: {e}\n{traceback.format_exc()}")
+            return
+        
+        # Reload the updated lookup if written; otherwise fall back to the returned mapping
+        try:
             if self._topic_lookup_path.exists():
                 with open(self._topic_lookup_path, 'r', encoding='utf-8') as f:
-                    self._topic_lookup = json.load(f)
-            
-            updated_count = sum(1 for label in result.values() 
-                              if not (label.startswith("topic_") or 
-                                     label.startswith("test_") or 
-                                     label.startswith("viral_") or 
-                                     label.startswith("trending_")))
-            
-            print(f"[{datetime.now().isoformat()}] Topic labeling completed. Updated {updated_count} labels.")
-            
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        after = loaded
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] Error running topic labeling pipeline: {e}")
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Failed to reload topic lookup: {e}")
+
+        if not after:
+            after = result if isinstance(result, dict) else {}
+
+        # Count changes
+        changed = sum(1 for k, v in after.items() if before.get(k) != v)
+        
+        print(f"[{datetime.now().isoformat()}] Topic labeling completed. Updated {changed} labels.")
+
+        # Update in-memory lookup
+        self._topic_lookup = after
+            
+
     
     def _update_topic_lookup(self, topic_id: int, label: str) -> None:
         """Persist mapping from topic_id to original label in topic lookup."""
@@ -523,19 +533,27 @@ class RuntimeGlue:
         except Exception as e:
             print(f"[{datetime.now().isoformat()}] Error updating metrics lookup: {e}")
 
-    def _stable_id(self, label: str) -> int:
-        return int(hashlib.blake2s(label.encode("utf-8"), digest_size=4).hexdigest(), 16) % 1_000_000
-
+    @staticmethod
+    def _stable_id(label: str) -> str:
+        """Deterministic short ID from any label-like string."""
+        h = hashlib.blake2s(str(label).encode("utf-8"), digest_size=4).hexdigest()
+        return int(h, 16) % 1_000_000
 
     def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]) -> None:
         """Record event and scores for metrics tracking."""
         try:
             # --- normalize event fields ---
+            user = event.get("user") or {}
+            author = event.get("author") or {}
             user_id = (
                 event.get("user_id")
                 or event.get("actor_id")
                 or event.get("author_id")
                 or event.get("channel_id")
+                or user.get("id")
+                or author.get("id")
+                or user.get("username")
+                or author.get("username")
                 or "unknown"
             )
             ts_iso = (
@@ -573,8 +591,11 @@ class RuntimeGlue:
                         top_topic_id = topic_id
 
             # --- choose a topic for the event itself (emergence tracking) ---
-            # prefer the top predicted topic; if none, fall back to a stable hash of content_id/text
-            if top_topic_id is None:
+            # prefer explicit event topic_id (from handler); else top prediction; else fallback hash
+            explicit_id = event.get("topic_id")
+            if explicit_id is not None:
+                top_topic_id = int(explicit_id)
+            elif top_topic_id is None:
                 fallback_key = (
                     event.get("content_id")
                     or event.get("event_id")
@@ -593,12 +614,22 @@ class RuntimeGlue:
             # --- record the prediction list (if any) ---
             if predictions:
                 self.precision_tracker.record_predictions(ts_iso=ts_iso, items=predictions)
+                # --- buffer predictions for cache update ---
+                # Make a label-aware, per-event compact list (optional)
+                def _label_for(tid: int) -> str:
+                    key = str(tid)
+                    return self._topic_lookup.get(key) or self._metrics_lookup.get(key) or f"topic_{tid:06d}"
 
-                # keep short rolling buffer for the Streamlit cache
-                formatted = [{"topic_id": tid, "score": float(sc)} for tid, sc in predictions]
-                self._predictions_buffer.append(formatted)
-                if len(self._predictions_buffer) > 100:
-                    self._predictions_buffer = self._predictions_buffer[-50:]
+                tmp = {}
+                for tid, sc in predictions:
+                    lbl = _label_for(tid)
+                    if lbl not in tmp or sc > tmp[lbl]["score"]:
+                        tmp[lbl] = {"topic_id": tid, "label": lbl, "score": float(sc)}
+
+                from datetime import datetime, timezone as _tz
+                self._predictions_buffer.append((datetime.now(_tz.utc), list(tmp.values())))
+                if len(self._predictions_buffer) > 1000:
+                    self._predictions_buffer = self._predictions_buffer[-500:]
 
         except Exception as e:
             self.logger.error("Error recording metrics: %s\n%s", e, traceback.format_exc()) # log error without crashing; traceback stacktrace for pinpointing exact failing line
@@ -668,3 +699,4 @@ def mock_event_stream(n_events: int = 100, delay: float = 0.1) -> Generator[Even
         }
         if delay > 0:
             time.sleep(delay)
+            

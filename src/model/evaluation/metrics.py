@@ -20,6 +20,7 @@ from pathlib import Path
 from utils.path_utils import find_repo_root
 
 from config.config import (
+    ADAPT_WINDOW_HOURS,
     DELTA_HOURS,
     WINDOW_MIN,
     K_DEFAULT,
@@ -266,6 +267,7 @@ class PrecisionAtKOnline:
         *,
         delta_hours: Optional[int] = None,
         window_min: Optional[int] = None,
+        adapt_window_hours: Optional[int] = None,
         k_default: Optional[int] = None,
         k_options: Optional[Iterable[int]] = None,
         regime_shift_threshold: float = 0.5,
@@ -274,6 +276,7 @@ class PrecisionAtKOnline:
     ) -> None:
         self.delta_hours = int(DELTA_HOURS if delta_hours is None else delta_hours)
         self.window_min  = int(WINDOW_MIN  if window_min  is None else window_min)
+        self.adapt_window_hours = int(ADAPT_WINDOW_HOURS if adapt_window_hours is None else adapt_window_hours)
         self.k_default   = int(K_DEFAULT   if k_default   is None else k_default)
         self.k_options   = tuple(k_options or K_OPTIONS)
         self.sensitivity = sensitivity or SensitivityController()
@@ -394,11 +397,26 @@ class PrecisionAtKOnline:
                     self._shift_start = None
                     self._shift_mape = None
 
-        # Evict old records - guard against None timestamps
-        cutoff = mat_time - timedelta(minutes=self.window_min)
-        while self._mape_log and self._mape_log[0][0] is not None and self._mape_log[0][0] < cutoff:
+        # Evict outside 6h window
+        cutoff = mat_time - timedelta(hours=self.adapt_window_hours)
+        while self._mape_log and self._mape_log[0][0] < cutoff:
             self._mape_log.popleft()
-        while self._adaptivity_log and self._adaptivity_log[0][0] is not None and self._adaptivity_log[0][0] < cutoff:
+
+        # Rolling 6h MAPE
+        roll = [m for ts, m in self._mape_log if ts >= cutoff]
+        mape_t = sum(roll)/len(roll) if roll else 0.0
+
+        # Keep last rolling MAPE to compute t-1 -> t improvement
+        prev_ts, prev_mape = getattr(self, "_last_roll", (None, None))
+        if prev_mape is not None:
+            improv = max(0.0, (prev_mape - mape_t) / max(prev_mape, 1e-6))
+            self._adaptivity_log.append((mat_time, min(1.0, improv)))
+
+        self._last_roll = (mat_time, mape_t)
+
+        # Evict old entries beyond the adaptivity window
+        cutoff = mat_time - timedelta(minutes=self.adapt_window_hours)
+        while self._adaptivity_log and self._adaptivity_log[0][0] < cutoff:
             self._adaptivity_log.popleft()
 
     # ------------------------------------------------------------------

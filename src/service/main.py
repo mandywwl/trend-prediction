@@ -8,6 +8,7 @@ import time
 import json
 import numpy as np
 import random
+import hashlib
 
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
@@ -50,6 +51,7 @@ from data_pipeline.collectors.twitter_collector import start_twitter_stream, rea
 from data_pipeline.collectors.youtube_collector import start_youtube_api_collector
 from data_pipeline.collectors.google_trends_collector import start_google_trends_collector, fake_google_trends_stream
 from data_pipeline.processors.text_rt_distilbert import RealtimeTextEmbedder
+from data_pipeline.processors.topic_labeling import run_topic_labeling_pipeline
 from data_pipeline.storage.builder import GraphBuilder
 
 
@@ -315,10 +317,18 @@ class IntegratedEventHandler(EventHandler):
     
     Extends EventHandler with graph building and checkpoint functionality.
     """
+    @staticmethod
+    def _stable_id(key: str) -> int:
+        h = hashlib.blake2s(str(key).encode("utf-8"), digest_size=4).hexdigest()
+        return int(h, 16) % 1_000_000
+    
     def __init__(self, embedder, graph_builder, spam_scorer, sensitivity_controller, service=None):
+        """Initialize the integrated event handler."""  
         # Create the inference function for the parent EventHandler
         def _infer_into_graph(event):
             graph_builder.process_event(event)
+
+        
         
         # Initialize parent EventHandler
         super().__init__(
@@ -365,11 +375,34 @@ class IntegratedEventHandler(EventHandler):
                 # Persist raw TGN metrics on the event for downstream consumers (e.g., dashboard panes)
                 event.setdefault("tgn_metrics", {}).update(tgn_out)
 
-                # For RuntimeGlue’s P@K, return a topic->score map.
-                from service.runtime_glue import RuntimeGlue  # for stable id hashing via glue if needed
-                topic_label = event.get("text") or event.get("content_id") or "unknown_topic"
-                growth = tgn_out.get("growth_score", tgn_out.get("score", tgn_out.get("growth_rate", 0.0)))
-                scores = {str(topic_label): float(growth)}
+                # Prefer model-provided topic_id/topic_label; otherwise derive a stable id + fallback label
+                topic_id = tgn_out.get("topic_id")
+                topic_label = (
+                    tgn_out.get("topic_label")
+                    or event.get("hashtag")
+                    or event.get("topic")
+                    or event.get("title")
+                    or (event.get("text") or event.get("content_id") or "unknown_topic")
+                )
+                if topic_id is None:
+                    raw_key = (
+                        event.get("topic_id")
+                        or event.get("hashtag")
+                        or event.get("entity")
+                        or event.get("content_id")
+                        or topic_label
+                    )
+                    topic_id = self._stable_id(raw_key)
+
+                # Attach for downstream consumers (metrics, cache, label registry)
+                event["topic_id"] = int(topic_id)
+                event["topic_label"] = str(topic_label)[:64]
+
+                growth = tgn_out.get("growth_score", tgn_out.get("score", tgn_out.get("growth_rate", 0.0))) or 0.0
+                # IMPORTANT: key scores by NUMERIC topic_id (as string)
+                scores = {str(int(topic_id)): float(growth)}
+
+
             else:
                 # Fallback: keep the current simulated scores while model is not ready
                 scores = self._generate_realistic_scores(event)
@@ -456,7 +489,7 @@ class IntegratedEventHandler(EventHandler):
     def _refresh_topic_labels(self):
         """Refresh topic labels using the topic labeling pipeline."""
         try:
-            from data_pipeline.processors.topic_labeling import run_topic_labeling_pipeline
+            
             
             self.logger.info("Refreshing topic labels...")
             
