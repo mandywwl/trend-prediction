@@ -1,0 +1,30 @@
+{
+  "precision_at_k": {
+    "k5": 0.0,
+    "k10": 0.0,
+    "support": 0
+  },
+  "adaptivity": 0.0,
+  "latency": {
+    "median_ms": 2778,
+    "p95_ms": 2778,
+    "per_stage_ms": {
+      "ingest": 0,
+      "preprocess": 2769,
+      "model_update_forward": 8,
+      "postprocess": 0
+    }
+  },
+  "robustness": {
+    "spam_rate": 0.0,
+    "theta_g": 1.0,
+    "theta_u": 1.0,
+    "downweighted_pct": 0.0
+  },
+  "meta": {
+    "service": "runtime_glue",
+    "config_delta_hours": "2",
+    "config_window_min": "60",
+    "generated_at": "2025-09-16T23:22:36.925616+00:00"
+  }
+}

@@ -4,7 +4,7 @@
     "k10": 0.0,
     "support": 40
   },
-  "adaptivity": 0.00012398422119912455,
+  "adaptivity": 0.00011231646111020444,
   "latency": {
     "median_ms": 0,
     "p95_ms": 0,
@@ -25,6 +25,6 @@
     "service": "runtime_glue",
     "config_delta_hours": "2",
     "config_window_min": "60",
-    "generated_at": "2025-09-16T07:45:39.023523+00:00"
+    "generated_at": "2025-09-16T07:59:05.615507+00:00"
   }
 }
