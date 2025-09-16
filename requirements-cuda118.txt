@@ -1,6 +1,6 @@
 # Use only on Windows/Linux with NVIDIA drivers + CUDA 11.8 runtime
 # You may also need: pip install --extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.7.1+cu118
+torch==2.8.0
 torchvision==0.22.0+cu118
 torchaudio==2.7.1+cu118
 
