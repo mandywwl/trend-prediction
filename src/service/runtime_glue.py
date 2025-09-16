@@ -65,7 +65,7 @@ class RuntimeConfig:
     metrics_lookup_path: str = METRICS_LOOKUP_PATH
     update_interval_sec: int = 60  # Update metrics every minute
     enable_background_timer: bool = True  # Enable background dashboard updates
-    cache_window_sec: int = 300   # Aggregate last 5 minutes of preds
+    cache_window_sec: int = 1800  # Aggregate last 30 minutes of preds
     
     @classmethod
     def from_yaml(cls, yaml_path: Optional[str] = None) -> 'RuntimeConfig':
@@ -86,7 +86,7 @@ class RuntimeConfig:
             metrics_lookup_path=runtime_config.get('metrics_lookup_path', METRICS_LOOKUP_PATH),
             update_interval_sec=runtime_config.get('update_interval_sec', 60),
             enable_background_timer=runtime_config.get('enable_background_timer', True),
-            cache_window_sec=runtime_config.get('cache_window_sec', 300),
+            cache_window_sec=runtime_config.get('cache_window_sec', 1800),
         )
 
 
@@ -402,11 +402,7 @@ class RuntimeGlue:
             label_best: dict[str, dict] = {}  # norm_label -> {label, score, topic_id, group_size}
             for tid, sc in pairs:
                 key = str(tid)
-                label = (
-                    self._topic_lookup.get(key)
-                    or self._metrics_lookup.get(key)
-                    or f"topic_{tid:06d}"
-                )
+                label = self._best_label(tid)
                 nl = norm_label(label)
                 entry = label_best.get(nl)
                 if entry is None or sc > entry["score"]:
@@ -425,6 +421,25 @@ class RuntimeGlue:
                     "group_size": d["group_size"]   # how many topic_ids collapsed under this label
                 })
             
+            if len(label_ranked) < K_store:
+                # Pad with topic-level entries (no label merge)
+                padded = []
+                seen_tids = {int(x["topic_id"]) for x in label_ranked if "topic_id" in x}
+                for tid, sc in pairs:
+                    if tid in seen_tids:
+                        continue
+                    padded.append({
+                        "label": self._best_label(tid),   # <— use helper
+                        "score": float(sc),
+                        "topic_id": tid,
+                        "group_size": 1
+                    })
+                    if len(label_ranked) + len(padded) >= K_store:
+                        break
+                topk = (label_ranked + padded)[:K_store]
+            else:
+                topk = label_ranked[:K_store]
+
             # 3) Build and persist cache item
             cache_item = {"t_iso": now.isoformat(), "topk": topk}
             cache_path = Path(self.config.predictions_cache_path)
@@ -538,6 +553,17 @@ class RuntimeGlue:
         """Deterministic short ID from any label-like string."""
         h = hashlib.blake2s(str(label).encode("utf-8"), digest_size=4).hexdigest()
         return int(h, 16) % 1_000_000
+    
+    def _best_label(self, tid: int) -> str:
+        """Prefer a human label; ignore purely numeric placeholders."""
+        k = str(tid)
+        c1 = self._topic_lookup.get(k)
+        if c1 and not str(c1).isdigit():
+            return c1
+        c2 = self._metrics_lookup.get(k)
+        if c2 and not str(c2).isdigit():
+            return c2
+        return f"topic_{tid:06d}"
 
     def _record_event_for_metrics(self, event: Event, scores: Dict[str, float]) -> None:
         """Record event and scores for metrics tracking."""
@@ -615,14 +641,10 @@ class RuntimeGlue:
             if predictions:
                 self.precision_tracker.record_predictions(ts_iso=ts_iso, items=predictions)
                 # --- buffer predictions for cache update ---
-                # Make a label-aware, per-event compact list (optional)
-                def _label_for(tid: int) -> str:
-                    key = str(tid)
-                    return self._topic_lookup.get(key) or self._metrics_lookup.get(key) or f"topic_{tid:06d}"
 
                 tmp = {}
                 for tid, sc in predictions:
-                    lbl = _label_for(tid)
+                    lbl = self._best_label(tid)
                     if lbl not in tmp or sc > tmp[lbl]["score"]:
                         tmp[lbl] = {"topic_id": tid, "label": lbl, "score": float(sc)}
 

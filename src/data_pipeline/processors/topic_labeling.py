@@ -23,7 +23,7 @@ class TopicLabeler:
         self,
         events_path: str = "data/events.jsonl",
         topic_lookup_path: str = TOPIC_LOOKUP_PATH,
-        min_texts_per_topic: int = 3,
+        min_texts_per_topic: int = 2,
         max_clusters_per_topic: int = 3,
         max_label_words: int = 3,
         use_embedder: bool = False
@@ -217,7 +217,7 @@ class TopicLabeler:
             lowercase=True,
             stop_words='english',
             ngram_range=(1, 2),
-            min_df=3, # drop extremely rare terms
+            min_df=1, # drop extremely rare terms
             max_df=0.8, # drop very common terms
             max_features=20000,
             sublinear_tf=True, # dampen large counts

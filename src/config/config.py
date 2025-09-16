@@ -116,3 +116,10 @@ MIN_GROWTH = 3                     # future count − past count (or slope) thre
 MIN_SUPPORT = 1                    # minimum occurrences before considering an item at all
 K_VALUES = [5, 10, 20]             # e.g., [5, 10, 20]
 HOLDOUT_DAYS = 0                   # optional temporal holdout at the end for a final report
+
+# --- Multi-candidate emission / reservoir ---
+EMIT_TOP_N = 5               # how many recent topics to emit per event
+RESERVOIR_DECAY = 0.6        # EMA decay for smoothing (0..1)
+RESERVOIR_TTL_SEC = 3600     # drop topics not seen for 1h
+RESERVOIR_TAU_SEC = 900      # recency time-constant for extra decay (seconds)
+RESERVOIR_MAX_SIZE = 4096    # cap to avoid unbounded growth

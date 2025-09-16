@@ -4,7 +4,7 @@ import os
 import sys
 import threading
 import signal
-import time
+import time as _time
 import json
 import numpy as np
 import random
@@ -13,37 +13,20 @@ import hashlib
 from pathlib import Path
 from typing import Dict, Any, Callable, Sequence, Iterable, Generator, Tuple
 from datetime import datetime, timezone
+from math import isfinite
 from service.tgn_service import TGNInferenceService
 from service.runtime_glue import RuntimeGlue, RuntimeConfig
+from service.recent_topics import RecentTopicReservoir
 from model.inference.spam_filter import SpamScorer
 from model.inference.adaptive_thresholds import SensitivityController
-
 from utils.logging import get_logger, setup_logging
 from config.config import (
-    PROJECT_ROOT,
-    TOPIC_LOOKUP_PATH,
-    EVENT_JSONL_PATH,
-    INFERENCE_DEVICE,
-    DATA_DIR,
-    DATABASE_PATH,
-    KEYWORDS,
-    DEFAULT_TRENDING_TOPICS,
-    TWITTER_SIM_EVENTS_PER_BATCH,
-    TWITTER_SIM_BATCH_INTERVAL,
-    REGIONS,
-    TRENDS_CATEGORY,
-    TRENDS_COUNT,
-    TRENDS_INTERVAL_SEC,
-    EVENT_MAX_LOG_BYTES,
-    EMBEDDER_BATCH_SIZE,
-    EMBEDDER_MAX_LATENCY_MS,
-    EMBED_PREPROC_BUDGET_MS,
-    TRAINING_INTERVAL_HOURS,
-    MIN_EVENTS_FOR_TRAINING,
-    TOPIC_REFRESH_EVERY,
-    TOPIC_REFRESH_SECS,
-    PERIODIC_REBUILD_SECS,
-    EDGE_WEIGHT_MIN,
+    PROJECT_ROOT, TOPIC_LOOKUP_PATH, EVENT_JSONL_PATH, INFERENCE_DEVICE, DATA_DIR, DATABASE_PATH,
+    REGIONS, KEYWORDS, DEFAULT_TRENDING_TOPICS, TWITTER_SIM_EVENTS_PER_BATCH, TWITTER_SIM_BATCH_INTERVAL,
+    TRENDS_CATEGORY, TRENDS_COUNT, TRENDS_INTERVAL_SEC, EVENT_MAX_LOG_BYTES,
+    EMBEDDER_BATCH_SIZE, EMBEDDER_MAX_LATENCY_MS, EMBED_PREPROC_BUDGET_MS, TRAINING_INTERVAL_HOURS, MIN_EVENTS_FOR_TRAINING,
+    TOPIC_REFRESH_EVERY, TOPIC_REFRESH_SECS, PERIODIC_REBUILD_SECS, EDGE_WEIGHT_MIN,
+    EMIT_TOP_N, RESERVOIR_DECAY, RESERVOIR_TTL_SEC, RESERVOIR_TAU_SEC, RESERVOIR_MAX_SIZE,
 
 )
 from config.schemas import Event, Features
@@ -99,7 +82,7 @@ _event_log_fh = open(EVENT_JSONL_PATH, "a", encoding="utf-8")
 def _rotate_event_log() -> None:
     """Rotate the event log when it grows too large."""
     global _event_log_fh
-    rotated = EVENT_JSONL_PATH.with_name(f"events_{int(time.time())}.jsonl")
+    rotated = EVENT_JSONL_PATH.with_name(f"events_{int(_time.time())}.jsonl")
     _event_log_fh.close()
     os.rename(EVENT_JSONL_PATH, rotated)
     _event_log_fh = open(EVENT_JSONL_PATH, "a", encoding="utf-8")
@@ -189,7 +172,7 @@ class EmbeddingPreprocessor:
         If no text field is found a zero embedding is attached to satisfy the
         downstream schema.
         """
-        t0 = time.perf_counter()
+        t0 = _time.perf_counter()
         text = self._extract_text(event)
         if text is None or light:
             if self._zero_emb is None:
@@ -203,7 +186,7 @@ class EmbeddingPreprocessor:
         features: Features = event.setdefault("features", {})
         features["text_emb"] = emb
 
-        duration_ms = (time.perf_counter() - t0) * 1000.0
+        duration_ms = (_time.perf_counter() - t0) * 1000.0
         if duration_ms > EMBED_PREPROC_BUDGET_MS:
             print(
                 f"[EmbeddingPreprocessor] budget exceeded: {duration_ms:.1f}ms > {EMBED_PREPROC_BUDGET_MS}ms"
@@ -252,7 +235,7 @@ class EventHandler:
             policy = self.sensitivity.policy()
         light = bool(policy and not policy.heavy_ops_enabled)
 
-        t0 = time.perf_counter()
+        t0 = _time.perf_counter()
         processed = self.preprocessor(event, light=light)
 
         if self.spam_scorer is not None:
@@ -286,7 +269,7 @@ class EventHandler:
 
         # Record latency and (optional) ground-truth spam label for adaptation
         if self.sensitivity is not None:
-            latency_ms = (time.perf_counter() - t0) * 1000.0
+            latency_ms = (_time.perf_counter() - t0) * 1000.0
             is_spam = bool(processed.get("is_spam", False))
             try:
                 self.sensitivity.record_event(is_spam=is_spam, latency_ms=latency_ms)
@@ -328,8 +311,14 @@ class IntegratedEventHandler(EventHandler):
         def _infer_into_graph(event):
             graph_builder.process_event(event)
 
-        
-        
+        # Initialize the recent topic reservoir
+        self._reservoir = RecentTopicReservoir(
+            decay=RESERVOIR_DECAY,
+            ttl_sec=RESERVOIR_TTL_SEC,
+            tau_recency=RESERVOIR_TAU_SEC,
+            max_size=RESERVOIR_MAX_SIZE,
+        )
+
         # Initialize parent EventHandler
         super().__init__(
             embedder=embedder,
@@ -399,13 +388,23 @@ class IntegratedEventHandler(EventHandler):
                 event["topic_label"] = str(topic_label)[:64]
 
                 growth = tgn_out.get("growth_score", tgn_out.get("score", tgn_out.get("growth_rate", 0.0))) or 0.0
-                # IMPORTANT: key scores by NUMERIC topic_id (as string)
-                scores = {str(int(topic_id)): float(growth)}
+
+                # 1) Update reservoir with the current event's best topic
+                self._reservoir.update(int(topic_id), float(growth), ts=_time.time())
+
+                # 2) Emit top-N recent topics for this tick
+                _emit = self._reservoir.top_n(n=max(1, EMIT_TOP_N)) or [(int(topic_id), growth)]
+                scores = {str(int(tid)): float(sc) for tid, sc in _emit if isfinite(float(sc))}
 
 
             else:
                 # Fallback: keep the current simulated scores while model is not ready
                 scores = self._generate_realistic_scores(event)
+                for key, sc in scores.items():
+                    tid = self._stable_id(key)
+                    self._reservoir.update(tid, float(sc))
+                _emit = self._reservoir.top_n(n=EMIT_TOP_N)
+                scores = {str(int(tid)): float(sc) for tid, sc in _emit}
 
             timer.end_stage('model_update_forward')
             timer.start_stage('postprocess')
@@ -584,7 +583,7 @@ def periodic_preprocessing():
             should_rebuild = not tgn_file.exists()
             if tgn_file.exists():
                 # Rebuild if older than PERIODIC_REBUILD_SECS (default 1 week)
-                file_age = time.time() - tgn_file.stat().st_mtime
+                file_age = _time.time() - tgn_file.stat().st_mtime
                 should_rebuild = file_age > PERIODIC_REBUILD_SECS
             
             if should_rebuild:
@@ -601,7 +600,7 @@ def periodic_preprocessing():
         logger.debug("No events data available yet for preprocessing")
 
 
-def create_event_stream():
+def create_event_stream(shutdown_event: threading.Event):
     """Create a unified event stream from all collectors."""
     import queue
     import time
@@ -691,7 +690,17 @@ def create_event_stream():
                 event_queue.put(event)
         
         try:
-            start_youtube_api_collector(YOUTUBE_API_KEY, on_event=on_youtube_event)
+            # Pass refresh interval + shutdown_event so it polls forever & stops cleanly
+            start_youtube_api_collector(
+                api_key=YOUTUBE_API_KEY,
+                on_event=on_youtube_event,
+                categories=None,                  # use the defaults in the collector
+                max_results=50,
+                region_code=REGIONS[0],          
+                delay=1.0,
+                refresh_interval=900,             # 15 minutes between cycles
+                shutdown_event=shutdown_event,   
+            )
         except Exception as e:
             stream_logger.error(f"YouTube collector error: {e}")
     
@@ -779,6 +788,8 @@ def main(yaml_config_path: str = None):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
+    shutdown_event = threading.Event()
+
     # Initialize components
     logger.info("Initializing components...")
     spam_scorer = SpamScorer()
@@ -852,8 +863,10 @@ def main(yaml_config_path: str = None):
     runtime_config = RuntimeConfig.from_yaml(yaml_config_path)
     runtime_glue = RuntimeGlue(event_handler, runtime_config)
     event_handler.runtime_glue = runtime_glue  # allow handler to call update_topic_labels() safely later
-    global runtime_glue_instance
+
+    global runtime_glue_instance, shutdown_event_ref
     runtime_glue_instance = runtime_glue  # Store for signal handler
+    shutdown_event_ref = shutdown_event
 
     logger.info(f"Configuration: {runtime_config.__dict__}")
 
@@ -889,7 +902,7 @@ def main(yaml_config_path: str = None):
     try:
         # Create unified event stream
         logger.info("Starting data collectors...")
-        event_stream = create_event_stream()
+        event_stream = create_event_stream(shutdown_event=shutdown_event)
         
         # Run the streaming service
         logger.info("Starting streaming service with RuntimeGlue...")
@@ -900,8 +913,13 @@ def main(yaml_config_path: str = None):
     except Exception as e:
         logger.error(f"Service error: {e}")
     finally:
-        # Cleanup
         logger.info("Performing cleanup...")
+        shutdown_event.set()
+
+        # Stop runtime glue’s background loop promptly
+        runtime_glue.set_shutdown()
+
+        # Signal all collectors/generators to exit their loops
         shutdown_event.set()
         
         # Stop training scheduler and hourly collector

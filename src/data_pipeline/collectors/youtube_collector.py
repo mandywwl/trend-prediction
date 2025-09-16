@@ -2,33 +2,40 @@ from googleapiclient.discovery import build
 from datetime import datetime, timezone
 import time
 from config.config import REGIONS
+from threading import Event
 
 
 def start_youtube_api_collector(
-    api_key, on_event=None, categories=None, max_results=50, region_code= REGIONS[0], delay=1.0 #TODO: Multi-region support
+    api_key, 
+    on_event=None, 
+    categories=None, 
+    max_results=50, 
+    region_code= REGIONS[0], #TODO: Multi-region support
+    delay=1.0,
+    refresh_interval: int = 900, # 15 minutes
+    shutdown_event: Event | None=None,
 ):
     """
-    Start collecting trending YouTube videos using the YouTube Data API.
-    :param api_key: YouTube Data API key
-    :param on_event: Callback function to handle each processed event (event_dict)
-    :param categories: List of video categories to filter (optional)
-    :param max_results: Maximum number of results to fetch (default: 10)
-    :param region_code: Region code for trending videos (default: "US")
-    :param delay: Delay between requests to avoid hitting API limits (default: 1.0 seconds)
+    Poll the YouTube API repeatedly and push items via `on_event(event)`.
     """
     print("[YouTube Collector] Starting stream...")
 
     if categories is None:
-        categories = [
-            "10",
-            "17",
-            "20",
-            "24",
-            "25",
-            "28",
-        ]  # Default categories: Music, Sports, Gaming, Entertainment, News & Politics, Science & Technology
+         # Default categories: Music, Sports, Gaming, Entertainment, News & Politics, Science & Technology 
+        categories = [ "10", "17", "20", "24", "25", "28",] 
+
     youtube = build("youtube", "v3", developerKey=api_key)
+
+    while True:
+        if shutdown_event is not None and shutdown_event.is_set():
+            print("[YouTube Collector] Shutdown signal received.")
+            break
+
+    
     for category in categories:
+        if shutdown_event is not None and shutdown_event.is_set():
+            break
+
         print(f"[YouTube Collector] Fetching trending videos for category: {category}")
         try:
             request = youtube.videos().list(
@@ -42,7 +49,10 @@ def start_youtube_api_collector(
         except Exception as e:
             print(f"[YouTube Collector] API error for category {category}: {e}")
             continue
+
         for item in response.get("items", []):
+            if shutdown_event is not None and shutdown_event.is_set():
+                break
             try:
                 video_id = item["id"]
                 channel_title = item["snippet"]["channelTitle"]
@@ -57,16 +67,23 @@ def start_youtube_api_collector(
                     "type": "upload",
                     "source": "youtube",
                     "text": video_title,
-                    # XXX (Optional fields):
-                    # "description": description,
-                    # "views": item['statistics'].get('viewCount', None),
-                    # "likes": item['statistics'].get('likeCount', None),
                 }
+
                 if on_event:
                     on_event(event)
                 else:
                     print(event)
-                time.sleep(delay)  # Respect API rate limits
+
+                # Respect API rate limits + be nice to CPU
+                time.sleep(delay)  
             except Exception as e:
-                print(f"[YouTube API Collector] Error processing item {video_id}: {e}")
+                print(f"[YouTube Collector] Error processing item {item.get('id', 'unknown')}: {e}")
                 continue
+
+    # Backoff between polling cycles, but remain responsive to shutdown
+    slept = 0
+    while slept < refresh_interval:
+        if shutdown_event is not None and shutdown_event.is_set():
+            break
+        time.sleep(1)
+        slept += 1
