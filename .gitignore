@@ -157,11 +157,11 @@ cython_debug/
 
 # Data files
 test_data/
-data/metrics_hourly/*.json
-data/predictions_cache.json
+# data/metrics_hourly/*.json
+# data/predictions_cache.json
 data/events.jsonl
 data/events.db
-data/emergence_labels.log
+# data/emergence_labels.log
 data/metrics_lookup.json
 data/checkpoint_*.pt
 data/final_checkpoint.pt
